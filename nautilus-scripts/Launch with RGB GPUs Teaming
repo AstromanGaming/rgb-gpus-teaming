@@ -1,13 +1,19 @@
 #!/bin/bash
 
 for file in "$@"; do
+    if [[ -x "$file" && ! -d "$file" ]]; then
+        echo "Passing executable file to gnome-launcher: $file"
+        ~/rgb-gpus-teaming/gnome-launcher.sh "$file"
+        continue
+    fi
+
     mime=$(xdg-mime query filetype "$file")
     desktop=$(xdg-mime query default "$mime")
     desktop_path=$(find ~/.local/share/applications /usr/share/applications -name "$desktop" 2>/dev/null | head -n 1)
 
     if [[ -f "$desktop_path" ]]; then
         exec_line=$(grep -E '^Exec=' "$desktop_path" | head -n 1 | sed 's/^Exec=//' | sed 's/ .*$//')
-        echo "Launching $exec_line for $file"
+        echo "Passing command to gnome-launcher: $exec_line"
         ~/rgb-gpus-teaming/gnome-launcher.sh "$exec_line"
     else
         echo "Could not find desktop file for MIME type $mime"
