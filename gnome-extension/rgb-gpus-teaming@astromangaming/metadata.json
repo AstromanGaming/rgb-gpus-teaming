@@ -1,0 +1,8 @@
+{
+  "uuid": "rgb-gpus-teaming@astromangaming",
+  "name": "RGB GPUs Teaming",
+  "description": "Add a button to launch an app with \"Launch with dedicated GPU\". A Add-on for the \"RGB GPUs Teaming\" project. ",
+  "shell-version": ["49"],
+  "version": 1,
+  "type": "module"
+}
