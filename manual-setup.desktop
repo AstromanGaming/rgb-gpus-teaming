@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=RGB GPUs Teaming
+Comment=Launch apps with RGB GPUs teaming script
+Exec=~/rgb-gpus-teaming/manual-setup.sh
+Icon=video-card
+Terminal=true
+Type=Application
+Categories=Utility;
+StartupNotify=true
