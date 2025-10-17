@@ -1,7 +1,7 @@
 #!/bin/bash
 
 input="$1"
-MEM_FILE="$HOME/.gpu_launcher_config"
+MEM_FILE="$HOME/.gpu_launcher_gnome_config"
 [[ -f "$MEM_FILE" ]] && source "$MEM_FILE"
 
 if [[ -f "$input" ]]; then

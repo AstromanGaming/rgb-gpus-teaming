@@ -1,6 +1,6 @@
 #!/bin/bash
 
-MEM_FILE="$HOME/.gpu_launcher_config"
+MEM_FILE="$HOME/.gpu_launcher_gnome_config"
 
 echo "What type of GPU do you want to use? *NVIDIA* on DRI_PRIME is experimental"
 echo "1) Intel / AMD / *NVIDIA* (via DRI_PRIME)"
