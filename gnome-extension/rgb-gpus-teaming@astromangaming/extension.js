@@ -9,13 +9,13 @@ export default class RgbGpusTeamingExtension extends Extension {
 
         this._injectionManager.overrideMethod(AppMenu.prototype, 'open', original => {
             return function (...args) {
-                if (this._rgbGpuMenuItem) return;
+                if (this._rgbGpuInjected) return original.call(this, ...args);
 
                 const appInfo = this._app?.app_info;
-                if (!appInfo) return;
+                if (!appInfo) return original.call(this, ...args);
 
                 const command = appInfo.get_executable();
-                if (!command) return;
+                if (!command) return original.call(this, ...args);
 
                 const scriptPath = GLib.build_filenamev([
                     GLib.get_home_dir(),
@@ -30,10 +30,12 @@ export default class RgbGpusTeamingExtension extends Extension {
 
                 log(`RGB GPUs Teaming: Injecting for ${appInfo.get_id()} with command ${command}`);
 
-                this._rgbGpuMenuItem = this.addAction('Launch with RGB GPUs Teaming', () => {
+                this.addAction('Launch with RGB GPUs Teaming', () => {
                     GLib.spawn_command_line_async(`${scriptPath} "${command}"`);
                     if (Main.overview.visible) Main.overview.hide();
                 });
+
+                this._rgbGpuInjected = true;
 
                 return original.call(this, ...args);
             };
