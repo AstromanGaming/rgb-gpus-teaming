@@ -1,0 +1,12 @@
+[Unit]
+Description=Wayland GPU Compositor Launcher
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/rgb-gpus-teaming/compositor-launcher.sh
+Restart=on-failure
+Environment=XDG_SESSION_TYPE=wayland
+
+[Install]
+WantedBy=default.target
