@@ -1,9 +1,0 @@
-[Desktop Entry]
-Name=RGB GPUs Teaming (Compositor)
-Comment=Config the compositor with RGB GPUs teaming script
-Exec=bash -c "$HOME/rgb-gpus-teaming/compositor-setup.sh"
-Icon=system-component-application
-Terminal=true
-Type=Application
-Categories=Utility;
-StartupNotify=true
