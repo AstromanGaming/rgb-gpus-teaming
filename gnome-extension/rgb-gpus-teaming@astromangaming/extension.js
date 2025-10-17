@@ -14,7 +14,14 @@ export default class RgbGpusTeamingExtension extends Extension {
                 const appInfo = this._app?.app_info;
                 if (!appInfo) return original.call(this, ...args);
 
-                const command = appInfo.get_executable();
+                const desktopId = appInfo.get_id();
+                let command = appInfo.get_executable();
+
+                if (command?.includes('flatpak') && desktopId?.endsWith('.desktop')) {
+                    const flatpakId = desktopId.replace('.desktop', '');
+                    command = `flatpak run ${flatpakId}`;
+                }
+
                 if (!command) return original.call(this, ...args);
 
                 const scriptPath = GLib.build_filenamev([
@@ -28,7 +35,7 @@ export default class RgbGpusTeamingExtension extends Extension {
                     return original.call(this, ...args);
                 }
 
-                log(`RGB GPUs Teaming: Injecting for ${appInfo.get_id()} with command ${command}`);
+                log(`RGB GPUs Teaming: Injecting for ${desktopId} with command ${command}`);
 
                 this.addAction('Launch with RGB GPUs Teaming', () => {
                     GLib.spawn_command_line_async(`${scriptPath} "${command}"`);
