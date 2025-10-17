@@ -1,2 +1,2 @@
-# all-ways-egpu-addon
-A "all-ways-egpu" addon for multi-gpus setup and a "switcheroo-control" alternative.
+# rgb-team
+The software for Multi-GPUs "Blue, Green and Red" teaming setup.
