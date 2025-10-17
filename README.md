@@ -1,2 +1,2 @@
 # rgb-gpus-teaming
-The software for Multi-GPUs "Blue, Green and Red" setup.
+The software for Multi-GPUs "Blue team, Green team and Red team" setup.
