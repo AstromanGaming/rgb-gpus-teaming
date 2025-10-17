@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=RGB GPUs Teaming (GNOME)
 Comment=Launch apps with RGB GPUs teaming script
-Exec=bash -c "$HOME/rgb-gpus-teaming/gnome-setup.sh
+Exec=bash -c "$HOME/rgb-gpus-teaming/gnome-setup.sh"
 Icon=video-card
 Terminal=true
 Type=Application
