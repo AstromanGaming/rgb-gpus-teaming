@@ -1,4 +1,10 @@
-# RGB GPUs Teaming
+# <p align="center"><strong>RGB GPUs Teaming</strong></p>
+
+###
+
+<p align="center">The software for Multi-GPUs "Red team, Green team and Blue team" setup.</p>
+
+##
 
 ### $${\color{blue}Info:}$$ 
 <p align="left"><em>For an eGPU setup, I strongly recommend using specialized software (such as all-ways-egpu) with this software.</em></p>
