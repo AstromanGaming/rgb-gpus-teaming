@@ -3,7 +3,7 @@ The software for Multi-GPUs "Blue team, Green team and Red team" setup.
 
 Info: For an eGPU setup, I strongly recommend using specialized software (such as all-ways-egpu) with this software.
 
-Warning: Support for X11 is unknown at this time; only tested for Wayland.
+Warning: Native support for X11 and Wayland is unknown at this time; only tested for Wayland with Xwayland.
 
 ### Installation (Ubuntu 25.10):
 ```
