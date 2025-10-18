@@ -2,7 +2,7 @@
 
 ###
 
-<p align="center">The software for Multi-GPUs "Red team, Green team and Blue team" setup.</p>
+<p align="center">The software for teaming Multi-GPUs "Red team, Green team and Blue team" setup.</p>
 
 ##
 
