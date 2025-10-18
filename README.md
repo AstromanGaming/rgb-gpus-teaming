@@ -68,15 +68,15 @@ This is the method for choosing your graphics card for an application in the GNO
 
 ##
 
-### Advisor:
+#### Advisor:
 ```
 ~/rgb-gpus-teaming/advisor.sh
 ```
-### Manual Setup:
+#### Manual Setup:
 ```
 ~/rgb-gpus-teaming/manual-setup.sh
 ```
-### Gnome Setup:
+#### Gnome Setup:
 ```
 ~/rgb-gpus-teaming/gnome-setup.sh
 ```
@@ -87,13 +87,13 @@ This is the method for choosing your graphics card for an application in the GNO
 
 ##
 
-### For GNOME:
+#### For GNOME:
 - Click on the relevant .desktop icons to use them.
 - Right-click on a .desktop application and click “Launch with RGB GPUs Teaming”.
 
-### For Nautilus:
+#### For Nautilus:
 - Right-click on a file, click Scripts, then click “Launch with RGB GPUs Teaming”.
 
 ##
 
-### <p align="center"><strong>Thanks for reading!</strong></p>
+#### <p align="center"><strong>Thanks for reading!</strong></p>
