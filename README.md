@@ -7,7 +7,7 @@
 <p align="left"><em>Native support for X11 and Wayland is unknown at this time; only tested for Wayland with Xwayland.</em></p>
 
 ## Installation (Tested on a Ubuntu 25.10)
-#### To start:
+#### To begin:
 ```
 sudo apt update
 sudo apt install git mesa-utils 
