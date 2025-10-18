@@ -64,3 +64,7 @@ if [[ -n "$nvidia_output" ]]; then
         echo
     fi
 fi
+
+# Pause before exit
+echo ""
+read -p "Press Enter to exit..."
