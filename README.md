@@ -24,6 +24,11 @@ sudo pkill -KILL -u your_username
 ./update-rgb-gpus-teaming.sh
 sudo pkill -KILL -u your_username
 ```
+#### For uninstalling:
+```
+./uninstall-rgb-gpus-teaming.sh
+sudo pkill -KILL -u your_username
+```
 Note: 
 
 - "sudo pkill -KILL -u your_username" is important for refresh the new or the upgraded installation! 
