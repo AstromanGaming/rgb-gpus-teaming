@@ -7,7 +7,7 @@
 ##
 
 ### $${\color{blue}Info:}$$ 
-<p align="left"><em>For an eGPU setup, I strongly recommend using specialized software (such as all-ways-egpu) with this software.</em></p>
+<p align="left"><em>For an eGPU setup, I strongly recommend using specialized software (such as <a href="https://github.com/ewagner12/all-ways-egpu" target="_blank">all-ways-egpu</a>) with this software.</em></p>
 
 ### $${\color{red}Warning:}$$ 
 <p align="left"><em>Native support for X11 and Wayland is unknown at this time; only tested for Wayland with Xwayland.</em></p>
