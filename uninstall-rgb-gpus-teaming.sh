@@ -36,4 +36,4 @@ echo "rgb-gpus-teaming has been uninstalled from your system."
 
 echo "Note: The project folder '$PROJECT_DIR' has been preserved."
 echo "To completely remove rgb-gpus-teaming, delete the folder manually:"
-echo "    rm -rf \"$PROJECT_DIR\""
+echo "→ rm -rf \"$PROJECT_DIR\""
