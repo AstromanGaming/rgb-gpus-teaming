@@ -14,8 +14,8 @@ fi
 
 # Main menu
 echo ""
-echo "What type of GPU do you want to use?"
-echo "1) Intel / AMD / *NVIDIA* (via DRI_PRIME)"
+echo "What type of GPU do you want to use? *NVIDIA* on DRI_PRIME is experimental"
+echo "1) Intel / AMD / *NVIDIA* (DRI_PRIME)"
 echo "2) NVIDIA (Render Offload)"
 echo "Press Enter to reuse the last saved configuration."
 read -p "Your choice (1 or 2): " mode
