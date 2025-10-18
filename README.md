@@ -20,7 +20,15 @@ cd ./rgb-gpus-teaming
 ```
 
 # Usages
-Note: For GUI version, GNOME is the only option for now.
+
+Advisor: 
+It's a tool that provides advice for graphics cards and how to use them.
+
+Manual (Setup):
+This is the manual method for selecting your graphics card for an application or command.
+
+Gnome (Setup):
+This is the method for choosing your graphics card for an application in the GNOME desktop environment.
 
 ## CLI/Shell
 
@@ -36,3 +44,11 @@ Note: For GUI version, GNOME is the only option for now.
 ```
 ./gnome-setup.sh
 ```
+
+## GUI
+### For GNOME:
+- Click on the relevant .desktop icons to use them.
+- Right-click on a .desktop application and click “Launch with RGB GPUs Teaming”.
+
+### For Nautilus:
+- Right-click on a file, click Scripts, then click “Launch with RGB GPUs Teaming”.
