@@ -1,5 +1,5 @@
 # rgb-gpus-teaming
-The software for Multi-GPUs "Blue team, Green team and Red team" setup.
+The software for Multi-GPUs "Red team, Green team and Blue team" setup.
 
 Info: For an eGPU setup, I strongly recommend using specialized software (such as all-ways-egpu) with this software.
 
