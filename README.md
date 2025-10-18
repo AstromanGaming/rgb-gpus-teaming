@@ -49,15 +49,15 @@ This is the method for choosing your graphics card for an application in the GNO
 
 ### Advisor:
 ```
-./advisor.sh
+~/rgb-gpus-teaming/advisor.sh
 ```
 ### Manual Setup:
 ```
-./manual-setup.sh
+~/rgb-gpus-teaming/manual-setup.sh
 ```
 ### Gnome Setup:
 ```
-./gnome-setup.sh
+~/rgb-gpus-teaming/gnome-setup.sh
 ```
 
 ## GUI
