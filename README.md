@@ -1,6 +1,6 @@
 ##
 
-# <p align="center"><strong>Red 🔴 Green 🟢 Blue 🔵 —GPUs—Teaming</strong></p>
+# <p align="center"><strong>Red 🔴 Green 🟢 Blue 🔵 —GPUs —Teaming</strong></p>
 
 ###
 
