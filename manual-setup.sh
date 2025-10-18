@@ -14,8 +14,9 @@ fi
 
 # Main menu
 echo ""
-echo "What type of GPU do you want to use? *NVIDIA* on DRI_PRIME is experimental"
-echo "1) Intel / AMD / *NVIDIA* (DRI_PRIME)"
+echo "What type of GPU do you want to use?"
+echo "Note: DRI_PRIME is experimental for NVIDIA under Wayland. Render Offload is preferred."
+echo "1) Intel / AMD / NVIDIA (DRI_PRIME)"
 echo "2) NVIDIA (Render Offload)"
 echo "Press Enter to reuse the last saved configuration."
 read -p "Your choice (1 or 2): " mode
@@ -29,8 +30,11 @@ else
             export DRI_PRIME=$dri_value
             unset __NV_PRIME_RENDER_OFFLOAD
             unset __GLX_VENDOR_LIBRARY_NAME
-            GPU_MODE="Intel / AMD / *NVIDIA*"
-            echo "Intel / AMD / *NVIDIA* mode enabled with DRI_PRIME=$DRI_PRIME"
+            GPU_MODE="Intel / AMD / NVIDIA"
+            echo "Intel / AMD / NVIDIA mode enabled with DRI_PRIME=$DRI_PRIME"
+            if [[ "$XDG_SESSION_TYPE" == "wayland" ]]; then
+                echo "Warning: DRI_PRIME may not work reliably with NVIDIA under Wayland."
+            fi
             ;;
         2)
             export __NV_PRIME_RENDER_OFFLOAD=1

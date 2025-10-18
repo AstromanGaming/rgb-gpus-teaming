@@ -9,8 +9,9 @@ if [[ -f "$MEM_FILE" ]]; then
 fi
 
 echo ""
-echo "What type of GPU do you want to use? *NVIDIA* on DRI_PRIME is experimental"
-echo "1) Intel / AMD / *NVIDIA* (DRI_PRIME)"
+echo "What type of GPU do you want to use?"
+echo "Note: DRI_PRIME is experimental for NVIDIA under Wayland. Render Offload is preferred."
+echo "1) Intel / AMD / NVIDIA (DRI_PRIME)"
 echo "2) NVIDIA (Render Offload)"
 read -rp "Your choice (1 or 2): " mode
 
@@ -20,8 +21,12 @@ case "$mode" in
         export DRI_PRIME="$dri_value"
         unset __NV_PRIME_RENDER_OFFLOAD
         unset __GLX_VENDOR_LIBRARY_NAME
-        GPU_MODE="Intel / AMD / *NVIDIA*"
+        GPU_MODE="Intel / AMD / NVIDIA"
         echo "$GPU_MODE mode enabled with DRI_PRIME=$DRI_PRIME"
+
+        if [[ "$XDG_SESSION_TYPE" == "wayland" ]]; then
+            echo "Warning: DRI_PRIME may not work reliably with NVIDIA under Wayland."
+        fi
 
         {
             echo "GPU_MODE=\"$GPU_MODE\""
