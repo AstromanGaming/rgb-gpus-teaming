@@ -12,7 +12,12 @@
 ### $${\color{red}Warning:}$$ 
 <p align="left"><em>Native support for X11 and Wayland is unknown at this time; only tested for Wayland with Xwayland.</em></p>
 
-## Installation (Tested on a Ubuntu 25.10)
+##
+
+### Installation (Tested on a Ubuntu 25.10)
+
+##
+
 #### To begin:
 ```
 sudo apt update
@@ -42,18 +47,26 @@ Note:
 - “sudo pkill -KILL -u your_username” is important for refresh the new or the upgraded installation! 
 - With the GUI, just click “logout”.
 
-# Usages
+##
 
-Advisor: 
+# <p align="left"><strong>Usages</strong></p>
+
+### Definitions:
+
+- Advisor: 
 It's a tool that provides advice for graphics cards and how to use them.
 
-Manual Setup:
+- Manual Setup:
 This is the manual method for selecting your graphics card for an application or command.
 
-Gnome Setup:
+- Gnome Setup:
 This is the method for choosing your graphics card for an application in the GNOME desktop environment.
 
-## CLI/Shell
+##
+
+### CLI/Shell
+
+##
 
 ### Advisor:
 ```
@@ -68,7 +81,12 @@ This is the method for choosing your graphics card for an application in the GNO
 ~/rgb-gpus-teaming/gnome-setup.sh
 ```
 
-## GUI
+##
+
+### GUI
+
+##
+
 ### For GNOME:
 - Click on the relevant .desktop icons to use them.
 - Right-click on a .desktop application and click “Launch with RGB GPUs Teaming”.
