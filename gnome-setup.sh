@@ -8,6 +8,7 @@ if [[ -f "$MEM_FILE" ]]; then
     echo "Last DRI_PRIME index: $DRI_PRIME"
 fi
 
+echo ""
 echo "What type of GPU do you want to use? *NVIDIA* on DRI_PRIME is experimental"
 echo "1) Intel / AMD / *NVIDIA* (DRI_PRIME)"
 echo "2) NVIDIA (Render Offload)"
