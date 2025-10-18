@@ -19,4 +19,20 @@ cd ./rgb-gpus-teaming
 ./update-rgb-gpus-teaming.sh
 ```
 
-## Usages
+# Usages
+Note: For GUI version, GNOME is the only option for now.
+
+## CLI/Shell
+
+### Advisor:
+```
+./advisor.sh
+```
+### Manual Setup:
+```
+./manual-setup.sh
+```
+### Gnome Setup:
+```
+./gnome-setup.sh
+```
