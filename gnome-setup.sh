@@ -20,11 +20,11 @@ case "$mode" in
         unset __NV_PRIME_RENDER_OFFLOAD
         unset __GLX_VENDOR_LIBRARY_NAME
         GPU_MODE="Intel / AMD / *NVIDIA*"
-        echo "Intel / AMD / *NVIDIA* mode enabled with DRI_PRIME=$DRI_PRIME"
+        echo "$GPU_MODE mode enabled with DRI_PRIME=$DRI_PRIME"
 
         {
-            echo "GPU_MODE=DRI_PRIME"
-            echo "DRI_PRIME=$DRI_PRIME"
+            echo "GPU_MODE=\"$GPU_MODE\""
+            echo "DRI_PRIME=\"$DRI_PRIME\""
         } > "$MEM_FILE"
         ;;
     2)
@@ -32,10 +32,10 @@ case "$mode" in
         export __GLX_VENDOR_LIBRARY_NAME=nvidia
         unset DRI_PRIME
         GPU_MODE="NVIDIA"
-        echo "NVIDIA mode enabled with Render Offload"
+        echo "$GPU_MODE mode enabled with Render Offload"
 
         {
-            echo "GPU_MODE=NVIDIA"
+            echo "GPU_MODE=\"$GPU_MODE\""
             echo "DRI_PRIME="
         } > "$MEM_FILE"
         ;;
