@@ -53,49 +53,60 @@ Note:
 
 ##
 
-## <p align="left"><strong>Usages</strong></p>
+## <p align="left"><strong>Usages:</strong></p>
 
-### Definitions
+#### Definitions
 
-- Advisor: 
-It's a tool that provides advice for graphics cards and how to use them.
+## 
 
-- Manual Setup:
-This is the manual method for selecting your graphics card for an application or command.
+##### Advisor:
 
-- Gnome Setup:
-This is the method for choosing your graphics card for an application in the GNOME desktop environment.
+- It's a tool that provides advice for graphics cards and how to use them.
+
+###
+
+##### Manual Setup:
+  
+- This is the manual method for selecting your graphics card for an application or command.
+
+###
+
+##### Gnome Setup:
+  
+- This is the method for choosing your graphics card for an application in the GNOME desktop environment.
+
+###
 
 ##
 
-### CLI/Shell
+#### CLI/Shell
 
 ##
 
-#### Advisor:
+##### Advisor:
 ```
 ~/rgb-gpus-teaming/advisor.sh
 ```
-#### Manual Setup:
+##### Manual Setup:
 ```
 ~/rgb-gpus-teaming/manual-setup.sh
 ```
-#### Gnome Setup:
+##### Gnome Setup:
 ```
 ~/rgb-gpus-teaming/gnome-setup.sh
 ```
 
 ##
 
-### GUI
+#### GUI
 
 ##
 
-#### For GNOME:
+##### For GNOME:
 - Click on the relevant .desktop icons to use them.
 - Right-click on a .desktop application and click “Launch with RGB GPUs Teaming”.
 
-#### For Nautilus:
+##### For Nautilus:
 - Right-click on a file, click Scripts, then click “Launch with RGB GPUs Teaming”.
 
 ##
