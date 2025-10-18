@@ -1,5 +1,6 @@
 ##
 
+### <p align="center"><strong>🔴 Red 🔴 🟢 Green 🟢 🔵 Blue 🔵</strong></p>
 # <p align="center"><strong>RGB GPUs Teaming</strong></p>
 
 ###
