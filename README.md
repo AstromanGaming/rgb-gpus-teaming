@@ -93,3 +93,7 @@ This is the method for choosing your graphics card for an application in the GNO
 
 ### For Nautilus:
 - Right-click on a file, click Scripts, then click “Launch with RGB GPUs Teaming”.
+
+##
+
+### <p align="center"><strong>Thanks for reading!</strong></p>
