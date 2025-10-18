@@ -53,7 +53,9 @@ Note:
 
 ##
 
-## <p align="left"><strong>Usages:</strong></p>
+### Usages:
+
+##
 
 #### Definitions
 
