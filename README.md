@@ -5,7 +5,7 @@ Info: For an eGPU setup, I strongly recommend using specialized software (such a
 
 Warning: Native support for X11 and Wayland is unknown at this time; only tested for Wayland with Xwayland.
 
-### Installation (Ubuntu 25.10):
+### Installation (Tested on a Ubuntu 25.10):
 ```
 sudo apt update
 sudo apt install git mesa-utils 
