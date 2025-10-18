@@ -14,7 +14,7 @@ cd ./rgb-gpus-teaming
 ```
 ./install-rgb-gpus-teaming.sh
 ```
-#### For update:
+#### For upgrade:
 ```
 ./update-rgb-gpus-teaming.sh
 ```
