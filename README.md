@@ -113,4 +113,4 @@ sudo pkill -KILL -u your_username
 
 ##
 
-# <p align="center"><strong>Thanks for reading!</strong></p>
+# <p align="center"><strong>🔴🟢🔵 Thanks for reading! 🔵🟢🔴</strong></p>
