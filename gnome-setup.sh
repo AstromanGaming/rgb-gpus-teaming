@@ -2,6 +2,12 @@
 
 MEM_FILE="$HOME/.gpu_launcher_gnome_config"
 
+if [[ -f "$MEM_FILE" ]]; then
+    source "$MEM_FILE"
+    echo "Last mode used: $GPU_MODE"
+    echo "Last DRI_PRIME index: $DRI_PRIME"
+fi
+
 echo "What type of GPU do you want to use? *NVIDIA* on DRI_PRIME is experimental"
 echo "1) Intel / AMD / *NVIDIA* (via DRI_PRIME)"
 echo "2) NVIDIA (Render Offload)"
@@ -13,8 +19,8 @@ case "$mode" in
         export DRI_PRIME="$dri_value"
         unset __NV_PRIME_RENDER_OFFLOAD
         unset __GLX_VENDOR_LIBRARY_NAME
-        GPU_MODE="Intel/AMD/*NVIDIA*"
-        echo "Intel/AMD mode enabled with DRI_PRIME=$DRI_PRIME"
+        GPU_MODE="Intel / AMD / *NVIDIA*"
+        echo "Intel / AMD / *NVIDIA* mode enabled with DRI_PRIME=$DRI_PRIME"
 
         {
             echo "GPU_MODE=DRI_PRIME"
