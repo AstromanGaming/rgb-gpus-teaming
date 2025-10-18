@@ -1,9 +1,10 @@
-# rgb-gpus-teaming
-The software for Multi-GPUs "Red team, Green team and Blue team" setup.
+# RGB GPUs Teaming
 
-Info: For an eGPU setup, I strongly recommend using specialized software (such as all-ways-egpu) with this software.
+#### $${\color{blue}Info:}$$ 
+<p align="left"><em>For an eGPU setup, I strongly recommend using specialized software (such as all-ways-egpu) with this software.</em></p>
 
-Warning: Native support for X11 and Wayland is unknown at this time; only tested for Wayland with Xwayland.
+#### $${\color{red}Warning:}$$ 
+<p align="left"><em>Native support for X11 and Wayland is unknown at this time; only tested for Wayland with Xwayland.</em></p>
 
 ### Installation (Tested on a Ubuntu 25.10):
 ```
