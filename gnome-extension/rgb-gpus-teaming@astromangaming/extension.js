@@ -7,6 +7,12 @@ export default class RgbGpusTeamingExtension extends Extension {
     enable() {
         this._injectionManager = new InjectionManager();
 
+        const excludedDesktopIds = [
+            'advisor.desktop',
+            'gnome-setup.desktop',
+            'manual-setup.desktop'
+        ];
+
         this._injectionManager.overrideMethod(AppMenu.prototype, 'open', original => {
             return function (...args) {
                 if (this._rgbGpuInjected) return original.call(this, ...args);
@@ -16,6 +22,12 @@ export default class RgbGpusTeamingExtension extends Extension {
 
                 const desktopId = appInfo.get_id();
                 let command = appInfo.get_executable();
+
+                // Exclure les fichiers spécifiques
+                if (excludedDesktopIds.includes(desktopId)) {
+                    log(`RGB GPUs Teaming: Skipping injection for excluded app ${desktopId}`);
+                    return original.call(this, ...args);
+                }
 
                 if (command?.includes('flatpak') && desktopId?.endsWith('.desktop')) {
                     const flatpakId = desktopId.replace('.desktop', '');
