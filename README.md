@@ -1,7 +1,6 @@
 ##
 
 # <p align="center"><strong>rgb-gpus-teaming</strong></p>
-## <p align="center"><strong>🔴 Red 🔴 🟢 Green 🟢 🔵 Blue 🔵 — GPUs — Teaming</strong></p>
 
 ###
 
