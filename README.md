@@ -44,8 +44,8 @@ sudo pkill -KILL -u your_username
 ```
 Note: 
 
-- “sudo pkill -KILL -u your_username” is important for refresh the new or the upgraded installation! 
-- With the GUI, just click “logout”.
+- ```sudo pkill -KILL -u your_username``` is important for refresh the new or the upgraded installation!
+- With the GUI, just click “Sign out”.
 
 ##
 
