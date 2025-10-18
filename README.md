@@ -1,6 +1,6 @@
 ##
 
-# <p align="center"><strong>rgb-gpus-teaming</strong></p>
+# <p align="center"><strong>RGB-GPUs-Teaming</strong></p>
 
 ###
 
