@@ -24,10 +24,10 @@ cd ./rgb-gpus-teaming
 Advisor: 
 It's a tool that provides advice for graphics cards and how to use them.
 
-Manual (Setup):
+Manual Setup:
 This is the manual method for selecting your graphics card for an application or command.
 
-Gnome (Setup):
+Gnome Setup:
 This is the method for choosing your graphics card for an application in the GNOME desktop environment.
 
 ## CLI/Shell
