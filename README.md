@@ -1,12 +1,13 @@
 # RGB GPUs Teaming
 
-#### $${\color{blue}Info:}$$ 
+### $${\color{blue}Info:}$$ 
 <p align="left"><em>For an eGPU setup, I strongly recommend using specialized software (such as all-ways-egpu) with this software.</em></p>
 
-#### $${\color{red}Warning:}$$ 
+### $${\color{red}Warning:}$$ 
 <p align="left"><em>Native support for X11 and Wayland is unknown at this time; only tested for Wayland with Xwayland.</em></p>
 
-### Installation (Tested on a Ubuntu 25.10):
+## Installation (Tested on a Ubuntu 25.10)
+#### To start:
 ```
 sudo apt update
 sudo apt install git mesa-utils 
