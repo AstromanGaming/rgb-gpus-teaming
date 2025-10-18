@@ -51,7 +51,7 @@ Note:
 
 # <p align="left"><strong>Usages</strong></p>
 
-### Definitions:
+### Definitions
 
 - Advisor: 
 It's a tool that provides advice for graphics cards and how to use them.
@@ -96,4 +96,4 @@ This is the method for choosing your graphics card for an application in the GNO
 
 ##
 
-#### <p align="center"><strong>Thanks for reading!</strong></p>
+# <p align="center"><strong>Thanks for reading!</strong></p>
