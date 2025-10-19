@@ -67,7 +67,7 @@ sudo pkill -KILL -u your_username
 sudo pkill -KILL -u your_username
 ```
 
-#### For Usages:
+#### For the usages:
 
 ##
 
