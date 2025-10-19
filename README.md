@@ -18,15 +18,35 @@
 
 #
 
-### Installation (Tested on a Ubuntu 25.10)
+### Installation
 
 ##
 
 #### To begin:
+
+##### Per Linux Distro
+
+###### Debian/Ubuntu/Linux Mint
 ```
 sudo apt update
 sudo apt install git mesa-utils 
 ```
+
+###### Arch Linux/Manjaro/SteamOS (Experimental)
+```
+sudo pacman -Syu
+sudo pacman -S git mesa-utils
+```
+
+###### Fedora/RHEL (Experimental)
+```
+sudo dnf update
+sudo dnf install git mesa-demos
+```
+
+##### Downloading Methodes
+
+###### Git
 ```
 git clone https://github.com/AstromanGaming/rgb-gpus-teaming.git
 cd ./rgb-gpus-teaming
@@ -57,19 +77,19 @@ sudo pkill -KILL -u your_username
 
 ###### Advisor:
 
-- It's a tool that provides advice for graphics cards and how to use them.
+- This tool provides insight into the installed GPUs by listing them according to their PCIe bus hierarchy, allowing users to understand which card is primary, secondary, or tertiary, and configure usage modes accordingly.
 
 ###
 
 ###### Manual Setup:
   
-- This is the manual method for selecting your graphics card for an application or command.
+- This manual method use to choose exactly which GPU runs your app or command. Perfect when you’ve got multiple graphics cards and want to decide who does the heavy lifting.
 
 ###
 
 ###### Gnome Setup:
   
-- This is the method for choosing your graphics card for an application in the GNOME desktop environment.
+- This method lets you select which graphics card to use for a specific application within the GNOME desktop environment. It integrates seamlessly with GNOME’s interface, making GPU assignment simple and intuitive for everyday use.
 
 ###
 
@@ -102,8 +122,26 @@ sudo pkill -KILL -u your_username
 - Click on the relevant .desktop icons to use them.
 - Right-click on a .desktop application and click “Launch with RGB GPUs Teaming”.
 
+###### For KDE:
+- N/A
+
+###### For Cinnamon:
+- N/A
+
+###### For LXQt:
+- N/A
+
+##
+
+##### File Manager
+
+##
+
 ###### For Nautilus:
 - Right-click on a file, click Scripts, then click “Launch with RGB GPUs Teaming”.
+
+###### For Nemo:
+- N/A
 
 ##
 
