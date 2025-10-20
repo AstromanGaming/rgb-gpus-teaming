@@ -4,7 +4,7 @@
 
 ###
 
-#### <p align="center">The software for work Multi-GPUs “Red team, Green team and Blue team” setup together!</p>
+### <p align="center">The software for work Multi-GPUs “Red team, Green team and Blue team” setup together!</p>
 
 ##
 
@@ -151,4 +151,6 @@ sudo pkill -KILL -u your_username
 
 ##
 
-## <p align="center"><strong>Thanks you for reading this project!</strong></p>
+### <p align="center"><strong>Thanks you for reading this project!</strong></p>
+
+##
