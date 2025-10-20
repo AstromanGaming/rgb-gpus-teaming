@@ -150,3 +150,5 @@ sudo pkill -KILL -u your_username
 - With the GUI, just click “Sign out”.
 
 ##
+
+# <p align="center"><strong>Thanks for reading!</strong></p>
