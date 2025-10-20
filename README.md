@@ -4,7 +4,7 @@
 
 ###
 
-<p align="center">The software for work Multi-GPUs “Red team, Green team and Blue team” setup together!</p>
+### <p align="center">The software for work Multi-GPUs “Red team, Green team and Blue team” setup together!</p>
 
 ##
 
@@ -150,5 +150,3 @@ sudo pkill -KILL -u your_username
 - With the GUI, just click “Sign out”.
 
 ##
-
-# <p align="center"><strong>Thanks for reading!</strong></p>
