@@ -1,10 +1,10 @@
 ##
 
-# <p align="center"><strong>RGB-GPUs-Teaming</strong></p>
+# <p align="center"><strong>![RGB GPUs Teaming](logo.png)</strong></p>
 
 ###
 
-<p align="center">The software for work Multi-GPUs “Red team, Green team and Blue team” setup together.</p>
+<p align="center">The software for work Multi-GPUs “Red team, Green team and Blue team” setup together!</p>
 
 ##
 
