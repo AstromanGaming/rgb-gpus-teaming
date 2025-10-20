@@ -151,4 +151,4 @@ sudo pkill -KILL -u your_username
 
 ##
 
-# <p align="center"><strong>Thanks you for reading this project!</strong></p>
+# <p align="center"><strong>![Thanks you for reading this project!](logo2.png)</strong></p>
