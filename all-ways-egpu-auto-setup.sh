@@ -154,7 +154,7 @@ while true; do
 	y
 	y
 	EOF
-    else
+        else
             echo "No existing all-ways-egpu configuration detected: sending overwrite confirmation"
             sudo all-ways-egpu setup <<EOF
 	$egpu_answers $internal_answers
@@ -162,7 +162,7 @@ while true; do
 	y
 	y
 	EOF
-    fi
+        fi
 
         sudo all-ways-egpu set-boot-vga egpu
         sudo all-ways-egpu set-compositor-primary egpu
