@@ -4,9 +4,9 @@ DESKTOP_DIR="$HOME/.local/share/applications"
 NAUTILUS_SCRIPTS_DIR="$HOME/.local/share/nautilus/scripts"
 EXTENSION_DIR="$HOME/.local/share/gnome-shell/extensions"
 EXTENSION_UUID="rgb-gpus-teaming@astromangaming"
-PROJECT_DIR="$HOME/rgb-gpus-teaming"
+PROJECT_DIR="$HOME/RGB-GPUs-Teaming.OP"
 
-echo "Uninstalling rgb-gpus-teaming components..."
+echo "Uninstalling RGB-GPUs-Teaming components..."
 
 # Remove known .desktop files
 for file in advisor.desktop gnome-setup.desktop manual-setup.desktop; do
@@ -32,11 +32,11 @@ if [[ -d "$EXTENSION_DIR/$EXTENSION_UUID" ]]; then
     rm -rf "$EXTENSION_DIR/$EXTENSION_UUID"
 fi
 
-echo "rgb-gpus-teaming has been uninstalled from your system."
+echo "RGB-GPUs-Teaming has been uninstalled from your system."
 
 # Show final message only if not called with --silent
 if [[ "$1" != "--silent" ]]; then
     echo "Note: The project folder '$PROJECT_DIR' has been preserved."
-    echo "To completely remove rgb-gpus-teaming, delete the folder manually:"
+    echo "To completely remove RGB-GPUs-Teaming, delete the folder manually:"
     echo "→ rm -rf \"$PROJECT_DIR\""
 fi

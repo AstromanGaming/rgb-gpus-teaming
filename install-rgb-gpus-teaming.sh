@@ -1,6 +1,6 @@
 #!/bin/bash
 
-INSTALL_DIR="$HOME/rgb-gpus-teaming"
+INSTALL_DIR="$HOME/RGB-GPUs-Teaming.OP"
 DESKTOP_DIR="$HOME/.local/share/applications"
 NAUTILUS_SCRIPTS_DIR="$HOME/.local/share/nautilus/scripts"
 EXTENSION_DIR="$HOME/.local/share/gnome-shell/extensions"
@@ -8,7 +8,7 @@ EXTENSION_UUID="rgb-gpus-teaming@astromangaming"
 EXTENSION_SRC="$INSTALL_DIR/gnome-extension/$EXTENSION_UUID"
 EXTENSION_DEST="$EXTENSION_DIR/$EXTENSION_UUID"
 
-echo "Setting up rgb-gpus-teaming from $INSTALL_DIR..."
+echo "Setting up RGB-GPUs-Teaming from $INSTALL_DIR..."
 
 # Install .desktop launchers
 if compgen -G "$INSTALL_DIR/*.desktop" > /dev/null; then

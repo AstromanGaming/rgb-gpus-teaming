@@ -23,7 +23,6 @@ export default class RgbGpusTeamingExtension extends Extension {
                 const desktopId = appInfo.get_id();
                 let command = appInfo.get_executable();
 
-                // Exclure les fichiers spécifiques
                 if (excludedDesktopIds.includes(desktopId)) {
                     log(`RGB GPUs Teaming: Skipping injection for excluded app ${desktopId}`);
                     return original.call(this, ...args);
@@ -38,7 +37,7 @@ export default class RgbGpusTeamingExtension extends Extension {
 
                 const scriptPath = GLib.build_filenamev([
                     GLib.get_home_dir(),
-                    'rgb-gpus-teaming',
+                    'RGB-GPUs-Teaming.OP',
                     'gnome-launcher.sh'
                 ]);
 

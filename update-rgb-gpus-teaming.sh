@@ -1,10 +1,10 @@
 #!/bin/bash
 
-INSTALL_DIR="$HOME/rgb-gpus-teaming"
+INSTALL_DIR="$HOME/RGB-GPUs-Teaming.OP"
 INSTALL_SCRIPT="$INSTALL_DIR/install-rgb-gpus-teaming.sh"
 UNINSTALL_SCRIPT="$INSTALL_DIR/uninstall-rgb-gpus-teaming.sh"
 
-echo "Updating rgb-gpus-teaming..."
+echo "Updating RGB-GPUs-Teaming..."
 
 # Check if the installation directory exists
 if [[ ! -d "$INSTALL_DIR" ]]; then
@@ -30,7 +30,7 @@ fi
 
 # Run install script
 if [[ -x "$INSTALL_SCRIPT" ]]; then
-    echo "Reinstalling rgb-gpus-teaming..."
+    echo "Reinstalling RGB-GPUs-Teaming..."
     bash "$INSTALL_SCRIPT"
 else
     echo "Error: Install script not found or not executable: $INSTALL_SCRIPT"
