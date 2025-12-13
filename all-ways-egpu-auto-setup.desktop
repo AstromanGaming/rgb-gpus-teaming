@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=All-Ways-eGPU (Auto mode)
+GenericName=Wayland-eGPU-auto-script
+Comment=A auto script for setting eGPU as primary for Wayland desktops
+Exec=bash -c "$HOME/RGB-GPUs-Teaming.OP/all-ways-egpu-auto-setup.sh"
+Terminal=true
+Type=Application
+Categories=System;Settings;Utility;
+Keywords=system;hardware;
+StartupNotify=true

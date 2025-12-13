@@ -8,13 +8,35 @@ EXTENSION_UUID="rgb-gpus-teaming@astromangaming"
 EXTENSION_SRC="$INSTALL_DIR/gnome-extension/$EXTENSION_UUID"
 EXTENSION_DEST="$EXTENSION_DIR/$EXTENSION_UUID"
 
-echo "Setting up RGB-GPUs-Teaming from $INSTALL_DIR..."
+ALL_WAYS_EGPU=false
+
+for arg in "$@"; do
+    if [[ "$arg" == "--all-ways-egpu" ]]; then
+        ALL_WAYS_EGPU=true
+        break
+    fi
+done
+
+if [[ "$ALL_WAYS_EGPU" == true ]]; then
+    echo "Setting up RGB-GPUs-Teaming (with all-ways-egpu addon) from $INSTALL_DIR..."
+else
+    echo "Setting up RGB-GPUs-Teaming from $INSTALL_DIR..."
+fi
 
 # Install .desktop launchers
 if compgen -G "$INSTALL_DIR/*.desktop" > /dev/null; then
     echo "Installing .desktop launchers..."
     mkdir -p "$DESKTOP_DIR"
-    cp "$INSTALL_DIR"/*.desktop "$DESKTOP_DIR/"
+
+    if [[ "$ALL_WAYS_EGPU" == true ]]; then
+        cp "$INSTALL_DIR"/*.desktop "$DESKTOP_DIR/"
+    else
+        for file in "$INSTALL_DIR"/*.desktop; do
+            if [[ "$(basename "$file")" != "all-ways-egpu-auto-setup.desktop" ]]; then
+                cp "$file" "$DESKTOP_DIR/"
+            fi
+        done
+    fi
 fi
 
 # Install Nautilus scripts
