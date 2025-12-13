@@ -148,21 +148,21 @@ while true; do
     if ls "$CONF_DIR" | grep -qE "^(0|1|egpu-bus-ids|max-retry|user-bus-ids)$"; then
             echo "Existing all-ways-egpu configuration detected: skipping overwrite"
             sudo all-ways-egpu setup <<EOF
-	y
-	$egpu_answers $internal_answers
-	n
-	y
-	y
-	EOF
-        else
+y
+$egpu_answers $internal_answers
+n
+y
+y
+EOF
+    else
             echo "No existing all-ways-egpu configuration detected: sending overwrite confirmation"
             sudo all-ways-egpu setup <<EOF
-	$egpu_answers $internal_answers
-	n
-	y
-	y
-	EOF
-        fi
+$egpu_answers $internal_answers
+n
+y
+y
+EOF
+    fi
 
         sudo all-ways-egpu set-boot-vga egpu
         sudo all-ways-egpu set-compositor-primary egpu
