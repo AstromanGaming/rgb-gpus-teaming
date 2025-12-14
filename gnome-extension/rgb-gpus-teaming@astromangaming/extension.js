@@ -16,19 +16,22 @@ const EXCLUDED = new Set([
 let _orig = [];
 let _items = new Map();
 let _owners = new Set();
-let _dashSignals = []; // stores { obj, id } for disconnect/removal
-let _dashActorHandlers = []; // stores { actor, id } for actor signal handlers
+let _dashSignals = [];        // { obj, id }
+let _dashActorHandlers = [];  // { actor, id }
 let _pollSourceId = 0;
 
+/* Logging helper */
 function logDebug(msg) {
   try { global.log(`[${EXTENSION_UUID}] ${msg}`); } catch (e) {}
 }
 
+/* Check script exists and is executable */
 function scriptOk(path) {
   try { return GLib.file_test(path, GLib.FileTest.EXISTS | GLib.FileTest.IS_EXECUTABLE); }
   catch (e) { return false; }
 }
 
+/* Shell-quote helper */
 function safeQuote(s) {
   try { return GLib.shell_quote(s); } catch (e) { return `'${s.replace(/'/g, "'\\''")}'`; }
 }
@@ -216,6 +219,143 @@ function attachToExistingDashItems() {
   }
 }
 
+/* Recursively search an actor subtree for actors whose name or style class
+   suggests they are the dock/dash container (Ubuntu Dock / Dash-to-Dock). */
+function findDockActorsOnStage() {
+  const matches = [];
+  try {
+    if (!global || !global.stage) return matches;
+
+    const queue = [global.stage];
+    while (queue.length) {
+      const actor = queue.shift();
+      if (!actor) continue;
+
+      // actor.get_name may not exist on all objects; guard it
+      let name = '';
+      try { name = actor.get_name ? actor.get_name() : ''; } catch (e) { name = ''; }
+
+      // style classes may be available via actor.get_style_class_name or actor.get_style_context
+      let style = '';
+      try {
+        if (actor.get_style_class_name) style = actor.get_style_class_name() || '';
+        else if (actor.get_style_context && actor.get_style_context().list_classes) {
+          style = actor.get_style_context().list_classes().join(' ');
+        }
+      } catch (e) { style = ''; }
+
+      const combined = `${name} ${style}`.toLowerCase();
+
+      // common identifiers for Ubuntu Dock / Dash-to-Dock
+      if (combined.includes('dash') || combined.includes('ubuntu-dock') || combined.includes('dash-to-dock') || combined.includes('dash-container') || combined.includes('dock')) {
+        matches.push(actor);
+      }
+
+      // enqueue children if available
+      try {
+        if (actor.get_children) {
+          const children = actor.get_children();
+          for (let i = 0; i < children.length; i++) queue.push(children[i]);
+        } else if (actor.get_child_at_index) {
+          const n = actor.get_n_children ? actor.get_n_children() : 0;
+          for (let i = 0; i < n; i++) queue.push(actor.get_child_at_index(i));
+        }
+      } catch (e) {
+        // ignore traversal errors
+      }
+    }
+  } catch (e) {
+    logDebug(`findDockActorsOnStage error: ${e}`);
+  }
+  return matches;
+}
+
+/* Attach handlers to actors found on the stage that look like dock items.
+   This complements attachToExistingDashItems() and delegate signals. */
+function attachStageDockActors() {
+  try {
+    const dockActors = findDockActorsOnStage();
+    if (!dockActors || dockActors.length === 0) {
+      logDebug('attachStageDockActors: no dock actors found on stage');
+      return;
+    }
+
+    for (const dock of dockActors) {
+      // traverse immediate children to find per-app actors
+      try {
+        const children = (dock.get_children && dock.get_children()) || [];
+        for (let i = 0; i < children.length; i++) {
+          const child = children[i];
+          if (!child) continue;
+
+          // Heuristic: app actors often have a child with a 'app' or 'launcher' property
+          let owner = null;
+          try {
+            if (child._delegate) owner = child._delegate;
+            else if (child._app) owner = child;
+            else owner = child;
+          } catch (e) { owner = child; }
+
+          // Attach a button-press-event to ensure insertion on interaction
+          try {
+            if (owner && owner.connect && typeof owner.connect === 'function') {
+              const id = owner.connect('button-press-event', () => {
+                try {
+                  const appInfo = (owner.app || owner._app || owner._delegate?.app)?.app_info;
+                  let desktopId = appInfo?.get_id?.();
+                  let command = appInfo?.get_executable?.();
+                  if ((!command || command.length === 0) && desktopId?.endsWith('.desktop')) {
+                    const flatpakId = desktopId.replace(/\.desktop$/, '');
+                    if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
+                  }
+                  if (command) insertLaunchItem(owner, command);
+                } catch (e) {}
+                return false;
+              });
+              _dashActorHandlers.push({ actor: owner, id });
+            }
+          } catch (e) {}
+
+          // If the child itself exposes a getMenu or _appMenu, try immediate insertion
+          try {
+            const appInfo = (child.app || child._app || child._delegate?.app)?.app_info;
+            let desktopId = appInfo?.get_id?.();
+            let command = appInfo?.get_executable?.();
+            if ((!command || command.length === 0) && desktopId?.endsWith('.desktop')) {
+              const flatpakId = desktopId.replace(/\.desktop$/, '');
+              if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
+            }
+            if (command) insertLaunchItem(child, command);
+          } catch (e) {}
+        }
+      } catch (e) {
+        logDebug(`attachStageDockActors traverse error: ${e}`);
+      }
+
+      // Also try to connect to 'menu-created' on the dock actor itself (Ubuntu Dock sometimes emits it)
+      try {
+        if (dock.connect && typeof dock.connect === 'function') {
+          const id2 = dock.connect('menu-created', (d, owner) => {
+            try {
+              const appInfo = (owner.app || owner._app || owner._delegate?.app)?.app_info;
+              let desktopId = appInfo?.get_id?.();
+              let command = appInfo?.get_executable?.();
+              if ((!command || command.length === 0) && desktopId?.endsWith('.desktop')) {
+                const flatpakId = desktopId.replace(/\.desktop$/, '');
+                if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
+              }
+              if (command) insertLaunchItem(owner, command);
+            } catch (e) { logDebug(`dock menu-created handler error: ${e}`); }
+          });
+          _dashSignals.push({ obj: dock, id: id2 });
+        }
+      } catch (e) {}
+    }
+  } catch (e) {
+    logDebug(`attachStageDockActors error: ${e}`);
+  }
+}
+
 /* Connect to dash delegate 'menu-created' or similar signals to append when menus are created */
 function connectDashDelegateSignals() {
   try {
@@ -270,6 +410,7 @@ function startDashPoll() {
       try {
         attachToExistingDashItems();
         connectDashDelegateSignals();
+        attachStageDockActors();
       } catch (e) {}
       attempts++;
       if (attempts >= maxAttempts) {
@@ -336,10 +477,13 @@ export function enable() {
   // Connect delegate signals (menu-created) as a robust fallback (covers Ubuntu Dock)
   connectDashDelegateSignals();
 
+  // Attach actors found on stage (target Ubuntu Dock / Dash-to-Dock variants)
+  attachStageDockActors();
+
   // Start polling for a short period to catch Dash-to-Dock / Ubuntu Dock initialization
   startDashPoll();
 
-  if (_orig.length === 0 && _dashSignals.length === 0) {
+  if (_orig.length === 0 && _dashSignals.length === 0 && _dashActorHandlers.length === 0) {
     logDebug('No injection points found; extension will not add menu items.');
   }
 }
