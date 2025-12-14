@@ -8,6 +8,9 @@ set -euo pipefail
 #
 # Notes:
 #  - This script updates a system install under /opt/RGB-GPUs-Teaming.OP.
+#  - Child scripts are executed with INSTALL_BASE as the working directory
+#    to avoid accidental copying of the caller's current directory (e.g., $HOME).
+#  - The reinstall script is invoked without extra flags for maximum compatibility.
 
 INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
 INSTALL_SCRIPT="$INSTALL_BASE/install-rgb-gpus-teaming.sh"
@@ -25,7 +28,7 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Options:
-  --all-ways-egpu    Pass this flag to reinstall/install scripts to include the all-ways-egpu addon.
+  --all-ways-egpu    Pass this flag to the install script to include the all-ways-egpu addon.
   -h, --help         Show this help message and exit.
 EOF
 }
@@ -68,7 +71,7 @@ else
   info "Warning: $INSTALL_BASE is not a Git repository or git is not installed. Skipping git pull."
 fi
 
-# Build flags to pass to reinstall/install scripts
+# Build flags to pass to install script only
 script_flags=()
 [[ "$ALL_WAYS_EGPU" == true ]] && script_flags+=(--all-ways-egpu)
 
@@ -114,9 +117,11 @@ run_script() {
 }
 
 # Run reinstall script if present (tolerate non-zero exit)
+# NOTE: call reinstall without passing script_flags to remain compatible with
+# older reinstall scripts that do not accept arguments.
 if [[ -f "$UNINSTALL_SCRIPT" ]]; then
   info 'Running reinstall script (replaces uninstall)...'
-  if ! run_script "$UNINSTALL_SCRIPT" "${script_flags[@]}"; then
+  if ! run_script "$UNINSTALL_SCRIPT"; then
     err 'Warning: reinstall script returned non-zero; continuing to reinstall.'
   fi
 else
