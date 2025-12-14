@@ -1,7 +1,10 @@
-sudo tee /usr/share/gnome-shell/extensions/rgb-gpus-teaming@astromangaming/extension.js > /dev/null <<'EOF'
-/* extension.js - compatibility-focused, GJS-style imports */
+// extension.js (ES module style) — requires metadata.json "type": "module"
 
-const { GLib } = imports.gi;
+import GLib from 'gi://GLib';
+
+// Use the legacy imports object for GNOME internals where needed.
+// This is allowed inside modules and avoids relying on resource:/// modules
+// that may not export the symbols you expect.
 const Main = imports.ui.main;
 const PopupMenu = imports.ui.popupMenu || null;
 const AppDisplay = imports.ui.appDisplay || null;
@@ -21,140 +24,140 @@ let _items = new Map();
 let _owners = new Set();
 
 function logDebug(msg) {
-    try { global.log(`[${EXTENSION_UUID}] ${msg}`); } catch (e) {}
+  try { global.log(`[${EXTENSION_UUID}] ${msg}`); } catch (e) {}
 }
 
 function scriptOk(path) {
-    try {
-        return GLib.file_test(path, GLib.FileTest.EXISTS | GLib.FileTest.IS_EXECUTABLE);
-    } catch (e) { return false; }
+  try { return GLib.file_test(path, GLib.FileTest.EXISTS | GLib.FileTest.IS_EXECUTABLE); }
+  catch (e) { return false; }
 }
 
 function safeQuote(s) {
-    try { return GLib.shell_quote(s); } catch (e) { return `'${s.replace(/'/g, "'\\''")}'`; }
+  try { return GLib.shell_quote(s); } catch (e) { return `'${s.replace(/'/g, "'\\''")}'`; }
 }
 
 function insertLaunchItem(owner, command) {
-    if (!PopupMenu || !PopupMenu.PopupMenuItem) return;
-    if (_owners.has(owner)) return;
-    if (!scriptOk(LAUNCHER)) { logDebug(`Launcher missing: ${LAUNCHER}`); return; }
+  if (!PopupMenu || !PopupMenu.PopupMenuItem) return;
+  if (_owners.has(owner)) return;
+  if (!scriptOk(LAUNCHER)) { logDebug(`Launcher missing: ${LAUNCHER}`); return; }
 
-    let item = new PopupMenu.PopupMenuItem('Launch with RGB GPUs Teaming');
-    item.connect('activate', () => {
-        try {
-            const cmd = `${safeQuote(LAUNCHER)} ${safeQuote(command)}`;
-            GLib.spawn_command_line_async(cmd);
-            if (Main.overview && Main.overview.visible) Main.overview.hide();
-        } catch (e) { logDebug(`spawn failed: ${e}`); }
-    });
-
+  const item = new PopupMenu.PopupMenuItem('Launch with RGB GPUs Teaming');
+  item.connect('activate', () => {
     try {
-        if (owner.menu && typeof owner.menu.addMenuItem === 'function') owner.menu.addMenuItem(item, 0);
-        else if (typeof owner.addMenuItem === 'function') owner.addMenuItem(item, 0);
-        else if (owner._menu && typeof owner._menu.addMenuItem === 'function') owner._menu.addMenuItem(item, 0);
-        else if (owner.menu && typeof owner.menu.addMenuItem === 'function') owner.menu.addMenuItem(item);
-    } catch (e) { /* ignore insertion errors */ }
+      const cmd = `${safeQuote(LAUNCHER)} ${safeQuote(command)}`;
+      GLib.spawn_command_line_async(cmd);
+      if (Main.overview && Main.overview.visible) Main.overview.hide();
+    } catch (e) { logDebug(`spawn failed: ${e}`); }
+  });
 
-    _owners.add(owner);
-    _items.set(owner, item);
+  let inserted = false;
+  try {
+    if (owner.menu && typeof owner.menu.addMenuItem === 'function') { owner.menu.addMenuItem(item, 0); inserted = true; }
+  } catch (e) {}
+  if (!inserted) {
+    try { if (typeof owner.addMenuItem === 'function') { owner.addMenuItem(item, 0); inserted = true; } } catch (e) {}
+  }
+  if (!inserted) {
+    try { if (owner._menu && typeof owner._menu.addMenuItem === 'function') { owner._menu.addMenuItem(item, 0); inserted = true; } } catch (e) {}
+  }
+  if (!inserted) {
+    try { if (owner.menu && typeof owner.menu.addMenuItem === 'function') owner.menu.addMenuItem(item); } catch (e) {}
+  }
+
+  _owners.add(owner);
+  _items.set(owner, item);
 }
 
-function overrideMethod(obj, name, wrapperFactory) {
-    if (!obj || !obj.prototype || !obj.prototype[name]) return false;
-    const original = obj.prototype[name];
-    const wrapped = wrapperFactory(original);
-    _orig.push({ object: obj.prototype, name: name, original: original });
-    obj.prototype[name] = wrapped;
-    return true;
+function overrideMethod(obj, methodName, wrapperFactory) {
+  if (!obj || !obj.prototype || !obj.prototype[methodName]) return false;
+  const original = obj.prototype[methodName];
+  const wrapped = wrapperFactory(original);
+  _orig.push({ object: obj.prototype, name: methodName, original });
+  obj.prototype[methodName] = wrapped;
+  return true;
 }
 
-function restore() {
-    for (let e of _orig) {
-        try { e.object[e.name] = e.original; } catch (ex) {}
-    }
-    _orig = [];
+function restoreOverrides() {
+  for (const e of _orig) {
+    try { e.object[e.name] = e.original; } catch (ex) {}
+  }
+  _orig = [];
 }
 
-function cleanup() {
+function cleanupCreatedItems() {
+  for (const [owner, item] of _items.entries()) {
+    try { if (item && typeof item.destroy === 'function') item.destroy(); } catch (e) {}
+  }
+  _items.clear();
+  _owners.clear();
+}
+
+function makeAppMenuOpenWrapper(original) {
+  return function (...args) {
     try {
-        for (let [owner, item] of _items) {
-            try { if (item && typeof item.destroy === 'function') item.destroy(); } catch (e) {}
+      const appInfo = this._app && this._app.app_info ? this._app.app_info : (this._app || null);
+      let desktopId = null, command = null;
+      try { if (appInfo && typeof appInfo.get_id === 'function') desktopId = appInfo.get_id(); } catch (e) {}
+      try { if (appInfo && typeof appInfo.get_executable === 'function') command = appInfo.get_executable(); } catch (e) {}
+
+      if (!(desktopId && EXCLUDED.has(desktopId))) {
+        if ((!command || command.length === 0) && desktopId && desktopId.endsWith('.desktop')) {
+          const flatpakId = desktopId.replace(/\.desktop$/, '');
+          if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
         }
-    } catch (e) {}
-    _items.clear();
-    _owners.clear();
+        if (command) insertLaunchItem(this, command);
+      }
+    } catch (e) { logDebug(`AppMenu wrapper error: ${e}`); }
+    return original.apply(this, args);
+  };
 }
 
-function appMenuWrapper(original) {
-    return function (...args) {
-        try {
-            const appInfo = this._app && this._app.app_info ? this._app.app_info : (this._app || null);
-            let desktopId = null, command = null;
-            try { if (appInfo && typeof appInfo.get_id === 'function') desktopId = appInfo.get_id(); } catch (e) {}
-            try { if (appInfo && typeof appInfo.get_executable === 'function') command = appInfo.get_executable(); } catch (e) {}
+function makeAppIconWrapper(original) {
+  return function (...args) {
+    const result = original.apply(this, args);
+    try {
+      const app = this.app || this._app || this._delegate?.app;
+      const appInfo = app && app.app_info ? app.app_info : app;
+      let desktopId = null, command = null;
+      try { if (appInfo && typeof appInfo.get_id === 'function') desktopId = appInfo.get_id(); } catch (e) {}
+      try { if (appInfo && typeof appInfo.get_executable === 'function') command = appInfo.get_executable(); } catch (e) {}
 
-            if (!(desktopId && EXCLUDED.has(desktopId))) {
-                if ((!command || command.length === 0) && desktopId && desktopId.endsWith('.desktop')) {
-                    const flatpakId = desktopId.replace(/\\.desktop$/, '');
-                    if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
-                }
-                if (command) insertLaunchItem(this, command);
-            }
-        } catch (e) { logDebug(`AppMenu wrapper error: ${e}`); }
-        return original.apply(this, args);
-    };
-}
-
-function appIconWrapper(original) {
-    return function (...args) {
-        const res = original.apply(this, args);
-        try {
-            const app = this.app || this._app || (this._delegate && this._delegate.app);
-            const appInfo = app && app.app_info ? app.app_info : app;
-            let desktopId = null, command = null;
-            try { if (appInfo && typeof appInfo.get_id === 'function') desktopId = appInfo.get_id(); } catch (e) {}
-            try { if (appInfo && typeof appInfo.get_executable === 'function') command = appInfo.get_executable(); } catch (e) {}
-
-            if (!(desktopId && EXCLUDED.has(desktopId))) {
-                if ((!command || command.length === 0) && desktopId && desktopId.endsWith('.desktop')) {
-                    const flatpakId = desktopId.replace(/\\.desktop$/, '');
-                    if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
-                }
-                if (command) insertLaunchItem(this, command);
-            }
-        } catch (e) { logDebug(`AppIcon wrapper error: ${e}`); }
-        return res;
-    };
-}
-
-function init() { /* nothing */ }
-
-function enable() {
-    cleanup();
-    restore();
-
-    if (AppMenu && AppMenu.AppMenu && typeof AppMenu.AppMenu.prototype.open === 'function') {
-        overrideMethod(AppMenu.AppMenu, 'open', appMenuWrapper);
-        logDebug('Injected AppMenu.open');
-    } else if (AppDisplay && AppDisplay.AppIcon) {
-        const iconClass = AppDisplay.AppIcon;
-        const methods = ['_onButtonPress', '_showContextMenu', 'open_context_menu', 'show_context_menu'];
-        for (let m of methods) {
-            if (iconClass.prototype && typeof iconClass.prototype[m] === 'function') {
-                overrideMethod(iconClass, m, appIconWrapper);
-                logDebug(`Injected AppIcon.${m}`);
-            }
+      if (!(desktopId && EXCLUDED.has(desktopId))) {
+        if ((!command || command.length === 0) && desktopId && desktopId.endsWith('.desktop')) {
+          const flatpakId = desktopId.replace(/\.desktop$/, '');
+          if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
         }
-    } else {
-        logDebug('No AppMenu/AppIcon injection points found; extension will be mostly inert.');
+        if (command) insertLaunchItem(this, command);
+      }
+    } catch (e) { logDebug(`AppIcon wrapper error: ${e}`); }
+    return result;
+  };
+}
+
+// Module exports required by metadata "type": "module"
+export function init() { /* nothing to init */ }
+
+export function enable() {
+  cleanupCreatedItems();
+  restoreOverrides();
+
+  if (AppMenu && AppMenu.AppMenu && typeof AppMenu.AppMenu.prototype.open === 'function') {
+    overrideMethod(AppMenu.AppMenu, 'open', makeAppMenuOpenWrapper);
+    logDebug('Injected into AppMenu.open');
+  } else if (AppDisplay && AppDisplay.AppIcon) {
+    const methodNames = ['_onButtonPress', '_showContextMenu', 'open_context_menu', 'show_context_menu'];
+    for (const m of methodNames) {
+      if (AppDisplay.AppIcon.prototype && typeof AppDisplay.AppIcon.prototype[m] === 'function') {
+        overrideMethod(AppDisplay.AppIcon, m, makeAppIconWrapper);
+        logDebug(`Injected into AppIcon.${m}`);
+      }
     }
+  } else {
+    logDebug('No injection points found; extension will not add menu items.');
+  }
 }
 
-function disable() {
-    cleanup();
-    restore();
+export function disable() {
+  cleanupCreatedItems();
+  restoreOverrides();
 }
-
-var extension = { init: init, enable: enable, disable: disable };
-EOF
-sudo chmod 644 /usr/share/gnome-shell/extensions/rgb-gpus-teaming@astromangaming/extension.js
