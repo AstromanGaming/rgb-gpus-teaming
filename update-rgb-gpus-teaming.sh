@@ -5,6 +5,11 @@ set -euo pipefail
 #
 # Usage:
 #   sudo ./update-rgb-gpus-teaming.sh [--all-ways-egpu] [--help]
+#
+# Notes:
+#  - This script updates a system install under /opt/RGB-GPUs-Teaming.OP.
+#  - Child scripts are executed with INSTALL_BASE as the working directory
+#    to avoid accidental copying of the caller's current directory (e.g., $HOME).
 
 INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
 INSTALL_SCRIPT="$INSTALL_BASE/install-rgb-gpus-teaming.sh"
@@ -70,6 +75,8 @@ script_flags=()
 [[ "$ALL_WAYS_EGPU" == true ]] && script_flags+=(--all-ways-egpu)
 
 # Helper to run a script (already root) with logging and diagnostics
+# Runs the child script with INSTALL_BASE as the working directory to avoid
+# accidental copying of the caller's current directory (e.g. $HOME).
 run_script() {
   local script_path="$1"; shift
   local args=( "$@" )
@@ -84,14 +91,26 @@ run_script() {
   for a in "${args[@]}"; do printf ' %q' "$a"; done
   printf '\n'
 
+  # Save current directory and switch to INSTALL_BASE to avoid relative-path surprises.
+  local saved_pwd
+  saved_pwd="$PWD"
+  if [[ -d "$INSTALL_BASE" ]]; then
+    cd "$INSTALL_BASE"
+  else
+    # If INSTALL_BASE doesn't exist for some reason, run in the script's directory instead
+    cd "$(dirname "$script_path")"
+  fi
+
   # Run the script without xtrace to avoid leading +/++ lines in logs.
   # Stream stdout/stderr directly.
   if bash "$script_path" "${args[@]}"; then
     log "Script succeeded: $script_path"
+    cd "$saved_pwd" || true
     return 0
   else
     local rc=$?
     err "Script failed with exit code $rc."
+    cd "$saved_pwd" || true
     return $rc
   fi
 }
