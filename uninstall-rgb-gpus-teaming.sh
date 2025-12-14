@@ -5,7 +5,7 @@ set -euo pipefail
 # Conservative system-wide uninstaller for RGB-GPUs-Teaming.OP
 #
 # Usage:
-#   sudo ./uninstall-rgb-gpus-teaming.sh [--silent] [--remove-root] [--dry-run] [--verbose] [--help]
+#   sudo ./uninstall-rgb-gpus-teaming.sh [--silent] [--dry-run] [--verbose] [--remove-root] [--help]
 #
 # Behavior:
 # - If install-manifest.txt exists, remove items listed there (reverse order).
@@ -30,10 +30,10 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Options:
-  --silent        Suppress final informational messages.
-  --remove-root   Also remove the OPT_BASE directory itself (use with caution).
   --dry-run       Show actions without making changes.
   --verbose       Print detailed progress messages.
+  --silent        Suppress final informational messages.
+  --remove-root   Also remove the OPT_BASE directory itself (use with caution).
   -h, --help      Show this help message and exit.
 EOF
 }
@@ -50,7 +50,7 @@ while (( "$#" )); do
 done
 
 log() { [[ "$VERBOSE" == true ]] && printf '%s\n' "$*"; }
-err() { printf 'Error: %s\n' "$*' >&2; }
+err() { printf 'Error: %s\n' "$*" >&2; }
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "This script must be run as root. Re-run with sudo." >&2
@@ -88,18 +88,14 @@ if [[ -f "$MANIFEST" ]]; then
       else
         log "Preserving top-level directory: $OPT_BASE (use --remove-root to remove it)"
         # remove contents but keep directory if desired
-        run_rm_contents_keep_dir() {
-          local dir="$1"
-          if [[ "$DRY_RUN" == true ]]; then
-            echo "[DRY-RUN] Would remove contents of: $dir (preserve directory)"
-            return
+        if [[ "$DRY_RUN" == true ]]; then
+          echo "[DRY-RUN] Would remove contents of: $OPT_BASE (preserve directory)"
+        else
+          if [[ -d "$OPT_BASE" ]]; then
+            find "$OPT_BASE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+            log "Removed contents of: $OPT_BASE (directory preserved)"
           fi
-          if [[ -d "$dir" ]]; then
-            find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-            log "Removed contents of: $dir (directory preserved)"
-          fi
-        }
-        run_rm_contents_keep_dir "$OPT_BASE"
+        fi
       fi
     else
       run_rm "$item"
@@ -110,7 +106,6 @@ else
   log "No manifest found; using conservative explicit artifact list."
 
   # Conservative explicit list of files/dirs to remove (safe defaults)
-  # Add only items that the installer creates. Do NOT wildcard-remove everything.
   declare -a opt_items=(
     "$OPT_BASE/gnome-launcher.sh"
     "$OPT_BASE/gnome-setup.sh"
@@ -129,14 +124,12 @@ else
     "$OPT_BASE/gnome-extension"
     "$OPT_BASE/.git"
     "$OPT_BASE/.github"
-    # desktop files that may have been installed system-wide
     "$DESKTOP_DIR/advisor.desktop"
     "$DESKTOP_DIR/gnome-setup.desktop"
     "$DESKTOP_DIR/manual-setup.desktop"
     "$DESKTOP_DIR/all-ways-egpu-auto-setup.desktop"
   )
 
-  # Remove only items in the explicit list
   for p in "${opt_items[@]}"; do
     run_rm "$p"
   done
@@ -174,4 +167,3 @@ if [[ "$SILENT" != true ]]; then
     echo "If desktop entries still appear, run 'update-desktop-database' and/or log out and back in."
   fi
 fi
-
