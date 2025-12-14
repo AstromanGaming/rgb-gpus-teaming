@@ -1,7 +1,8 @@
 [Desktop Entry]
 Name=RGB GPUs Teaming (Advisor)
-Comment=Help to find GPUs for the RGB GPUs teaming scripts
-Exec=bash -c "$HOME/RGB-GPUs-Teaming.OP/advisor.sh"
+Comment=Help to find GPUs for the RGB GPUs Teaming scripts
+Exec=/opt/RGB-GPUs-Teaming.OP/advisor.sh %F
+TryExec=/opt/RGB-GPUs-Teaming.OP/advisor.sh
 Icon=help-contents
 Terminal=true
 Type=Application

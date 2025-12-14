@@ -1,7 +1,8 @@
 [Desktop Entry]
 Name=RGB GPUs Teaming
-Comment=Launch apps with RGB GPUs teaming script
-Exec=bash -c "$HOME/RGB-GPUs-Teaming.OP/manual-setup.sh"
+Comment=Launch applications with RGB GPUs Teaming
+Exec=/opt/RGB-GPUs-Teaming.OP/manual-setup.sh %F
+TryExec=/opt/RGB-GPUs-Teaming.OP/manual-setup.sh
 Icon=jockey
 Terminal=true
 Type=Application

@@ -1,107 +1,109 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LAUNCHER="$HOME/RGB-GPUs-Teaming.OP/gnome-launcher.sh"
+# Nautilus script: "Launch with RGB GPUs Teaming"
+# Place in: ~/.local/share/nautilus/scripts/Launch with RGB GPUs Teaming
+# Make executable: chmod +x ~/.local/share/nautilus/scripts/Launch\ with\ RGB\ GPUs\ Teaming
 
+INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
+LAUNCHER="$INSTALL_BASE/gnome-launcher.sh"
+
+# Ensure launcher exists
 if [[ ! -x "$LAUNCHER" ]]; then
-    echo "Error: launcher not found or not executable: $LAUNCHER" >&2
-    exit 2
+  zenity --error --text="Launcher not found or not executable: $LAUNCHER" 2>/dev/null || \
+  printf 'Error: launcher not found or not executable: %s\n' "$LAUNCHER" >&2
+  exit 2
 fi
 
-# Check dependencies
-if ! command -v xdg-mime >/dev/null 2>&1; then
-    echo "Warning: xdg-mime not found; MIME-based lookup will be skipped" >&2
-fi
-
-# Remove desktop Exec field codes like %U %f %F %u %i %c %k
 clean_exec_field() {
-    local line="$1"
-    # Remove leading Exec= if present
-    line="${line#Exec=}"
-    # Remove field codes and trailing whitespace
-    line="$(printf '%s' "$line" | sed -E 's/%[A-Za-z]//g' | sed -E 's/[[:space:]]+$//')"
-    printf '%s' "$line"
+  local line="$1"
+  line="${line#Exec=}"
+  printf '%s' "$line" | sed -E 's/%[A-Za-z]//g' | sed -E 's/[[:space:]]+$//'
 }
 
-# Resolve desktop file path from desktop id (e.g., org.gnome.Foo.desktop)
 find_desktop_path() {
-    local desktop_id="$1"
-    # search user and system locations; return first match
-    find "$HOME/.local/share/applications" /usr/share/applications -maxdepth 2 -type f -name "$desktop_id" 2>/dev/null | head -n1
+  local id="$1"
+  local user_apps="$HOME/.local/share/applications"
+  if [[ -f "$id" ]]; then
+    printf '%s' "$id"
+    return
+  fi
+  if [[ -d "$user_apps" ]]; then
+    find "$user_apps" /usr/share/applications -maxdepth 2 -type f -name "$id" 2>/dev/null | head -n1
+  else
+    find /usr/share/applications -maxdepth 2 -type f -name "$id" 2>/dev/null | head -n1
+  fi
 }
 
-# Process each argument
-for raw in "$@"; do
-    # Expand tilde and preserve spaces
-    file="$raw"
-
-    # If argument is a .desktop id or path
-    if [[ "$file" == *.desktop ]]; then
-        # If it's a path to an existing file, use it; otherwise treat as desktop id
-        if [[ -f "$file" ]]; then
-            desktop_path="$file"
-        else
-            desktop_path="$(find_desktop_path "$file" || true)"
-        fi
-
-        if [[ -n "${desktop_path:-}" && -f "$desktop_path" ]]; then
-            exec_line="$(grep -m1 -E '^Exec=' "$desktop_path" || true)"
-            if [[ -n "$exec_line" ]]; then
-                exec_cmd="$(clean_exec_field "$exec_line")"
-                echo "Passing command from desktop file to gnome-launcher: $exec_cmd"
-                "$LAUNCHER" "$exec_cmd"
-            else
-                echo "No Exec= line found in $desktop_path" >&2
-            fi
-        else
-            echo "Desktop file not found for $file" >&2
-        fi
-
-        continue
-    fi
-
-    # If the argument is an executable file (regular file and executable)
-    if [[ -f "$file" && -x "$file" ]]; then
-        echo "Passing executable file to gnome-launcher: $file"
-        "$LAUNCHER" "$file"
-        continue
-    fi
-
-    # Otherwise try to detect MIME type and find the default desktop entry
-    if command -v xdg-mime >/dev/null 2>&1; then
-        mime="$(xdg-mime query filetype -- "$file" 2>/dev/null || true)"
-    else
-        mime=""
-    fi
-
+mime_to_desktop() {
+  local file="$1"
+  if command -v xdg-mime >/dev/null 2>&1; then
+    local mime
+    mime="$(xdg-mime query filetype -- "$file" 2>/dev/null || true)"
     if [[ -n "$mime" ]]; then
-        desktop_id="$(xdg-mime query default -- "$mime" 2>/dev/null || true)"
-    else
-        desktop_id=""
+      xdg-mime query default -- "$mime" 2>/dev/null || true
     fi
+  fi
+}
 
-    if [[ -n "$desktop_id" ]]; then
-        desktop_path="$(find_desktop_path "$desktop_id" || true)"
-    else
-        desktop_path=""
-    fi
+run_launcher() {
+  local arg="$1"
+  "$LAUNCHER" "$arg"
+}
 
+# Nautilus passes selected files as args; if none, read stdin
+if [[ $# -eq 0 ]]; then
+  mapfile -t args < <(sed -n '1,${p;q}' /dev/stdin 2>/dev/null || true)
+else
+  args=("$@")
+fi
+
+for raw in "${args[@]}"; do
+  file="${raw/#\~/$HOME}"
+
+  if [[ "$file" == *.desktop ]]; then
+    desktop_path="$(find_desktop_path "$file" || true)"
     if [[ -n "$desktop_path" && -f "$desktop_path" ]]; then
-        exec_line="$(grep -m1 -E '^Exec=' "$desktop_path" || true)"
-        if [[ -n "$exec_line" ]]; then
-            exec_cmd="$(clean_exec_field "$exec_line")"
-            echo "Passing command to gnome-launcher: $exec_cmd"
-            "$LAUNCHER" "$exec_cmd"
-        else
-            echo "No Exec= line found in $desktop_path" >&2
-        fi
+      exec_line="$(grep -m1 -E '^Exec=' "$desktop_path" || true)"
+      if [[ -n "$exec_line" ]]; then
+        exec_cmd="$(clean_exec_field "$exec_line")"
+        run_launcher "$exec_cmd"
+      else
+        printf 'No Exec= line found in %s\n' "$desktop_path" >&2
+      fi
     else
-        # Fallback: if file looks like a command (no path separators), try to pass it directly
-        if [[ "$file" != */* ]]; then
-            echo "Treating argument as command: $file"
-            "$LAUNCHER" "$file"
-        else
-            echo "Could not find desktop file for MIME type ${mime:-unknown} and argument: $file" >&2
-        fi
+      printf 'Desktop file not found for %s\n' "$file" >&2
     fi
+    continue
+  fi
+
+  if [[ -f "$file" && -x "$file" ]]; then
+    run_launcher "$file"
+    continue
+  fi
+
+  desktop_id="$(mime_to_desktop "$file" || true)"
+  if [[ -n "$desktop_id" ]]; then
+    desktop_path="$(find_desktop_path "$desktop_id" || true)"
+  else
+    desktop_path=""
+  fi
+
+  if [[ -n "$desktop_path" && -f "$desktop_path" ]]; then
+    exec_line="$(grep -m1 -E '^Exec=' "$desktop_path" || true)"
+    if [[ -n "$exec_line" ]]; then
+      exec_cmd="$(clean_exec_field "$exec_line")"
+      run_launcher "$exec_cmd"
+      continue
+    fi
+  fi
+
+  if [[ "$file" != */* ]]; then
+    run_launcher "$file"
+    continue
+  fi
+
+  printf 'Could not resolve: %s\n' "$file" >&2
 done
+
+exit 0

@@ -1,153 +1,215 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REAL_USER="${SUDO_USER:-$USER}"
-HOME_DIR="$(getent passwd "$REAL_USER" | cut -d: -f6)"
-INSTALL_DIR="$HOME_DIR/RGB-GPUs-Teaming.OP"
-DESKTOP_DIR="$HOME_DIR/.local/share/applications"
-NAUTILUS_SCRIPTS_DIR="$HOME_DIR/.local/share/nautilus/scripts"
-EXTENSION_DIR="$HOME_DIR/.local/share/gnome-shell/extensions"
+# install-rgb-gpus-teaming.sh
+# System-wide installer: copies project to /opt and installs desktop files,
+# Nautilus scripts, and GNOME extension system-wide.
+#
+# Usage: sudo ./install-rgb-gpus-teaming.sh [--all-ways-egpu] [--dry-run] [--verbose] [--help]
+
+SCRIPT_NAME="$(basename "$0")"
+SRC_DIR="$(pwd)"
+DEST_BASE="/opt/RGB-GPUs-Teaming.OP"
+DEST_DESKTOP_DIR="/usr/share/applications"
+DEST_NAUTILUS_DIR="/usr/share/nautilus/scripts"
+DEST_EXTENSIONS_DIR="/usr/share/gnome-shell/extensions"
 EXTENSION_UUID="rgb-gpus-teaming@astromangaming"
-EXTENSION_SRC="$INSTALL_DIR/gnome-extension/$EXTENSION_UUID"
-EXTENSION_DEST="$EXTENSION_DIR/$EXTENSION_UUID"
+EXTENSION_SRC="$SRC_DIR/gnome-extension/$EXTENSION_UUID"
+EXTENSION_DEST="$DEST_EXTENSIONS_DIR/$EXTENSION_UUID"
+MANIFEST_FILE="$DEST_BASE/install-manifest.txt"
+README_TXT="$DEST_BASE/README.txt"
 
 ALL_WAYS_EGPU=false
 VERBOSE=false
+DRY_RUN=false
 
 usage() {
-    cat <<EOF
-Usage: $(basename "$0") [options]
+  cat <<EOF
+Usage: $SCRIPT_NAME [options]
 
 Options:
   --all-ways-egpu    Install the all-ways-egpu desktop launcher as well.
+  --dry-run          Show what would be done without making changes.
   --verbose          Print detailed progress messages.
   -h, --help         Show this help message and exit.
 
 Notes:
-  - This script copies files into the current user's local directories.
-  - If run as root, files are copied for the original invoking user.
+  - This script must be run as root (it will re-run with sudo if needed).
+  - It copies the project to $DEST_BASE and installs system-wide desktop files.
 EOF
 }
 
 for arg in "$@"; do
-    case "$arg" in
-        --all-ways-egpu) ALL_WAYS_EGPU=true ;;
-        --verbose) VERBOSE=true ;;
-        -h|--help) usage; exit 0 ;;
-        *) echo "Warning: unknown argument '$arg' (ignored)" ;;
-    esac
+  case "$arg" in
+    --all-ways-egpu) ALL_WAYS_EGPU=true ;;
+    --verbose) VERBOSE=true ;;
+    --dry-run) DRY_RUN=true ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Warning: unknown argument '$arg' (ignored)" ;;
+  esac
 done
 
 log() { [[ "$VERBOSE" == true ]] && printf '%s\n' "$*"; }
 
-echo "Setting up RGB-GPUs-Teaming in $INSTALL_DIR (user: $REAL_USER)"
-log "Options: all-ways-egpu=$ALL_WAYS_EGPU, verbose=$VERBOSE"
-
-# Basic checks
-if [[ ! -d "$INSTALL_DIR" ]]; then
-    echo "Error: installation directory not found: $INSTALL_DIR" >&2
-    echo "Clone the repository into $INSTALL_DIR or run this script from the correct account." >&2
-    exit 2
+if [[ "$(id -u)" -ne 0 ]]; then
+  echo "This installer requires root. Re-running with sudo..."
+  exec sudo "$0" "$@"
 fi
 
-# Ensure target dirs exist
-mkdir -p "$DESKTOP_DIR" "$NAUTILUS_SCRIPTS_DIR" "$EXTENSION_DIR"
+if [[ ! -d "$SRC_DIR" ]]; then
+  echo "Error: source directory not found: $SRC_DIR" >&2
+  exit 2
+fi
 
-# Helper: run a command as the real user if running as root, otherwise run normally
-run_as_user() {
-    if [[ "$(id -u)" -eq 0 && "$REAL_USER" != "root" ]]; then
-        sudo -u "$REAL_USER" -- "$@"
-    else
-        "$@"
-    fi
+echo "Preparing system-wide install to $DEST_BASE"
+log "Options: all-ways-egpu=$ALL_WAYS_EGPU, verbose=$VERBOSE, dry-run=$DRY_RUN"
+
+if [[ "$DRY_RUN" == true ]]; then
+  echo "[DRY-RUN] Would remove and copy project to $DEST_BASE"
+else
+  rm -rf "$DEST_BASE"
+  mkdir -p "$DEST_BASE"
+  cp -a "$SRC_DIR/." "$DEST_BASE/"
+  log "Copied project to $DEST_BASE"
+fi
+
+# Create manifest
+manifest_write() {
+  if [[ "$DRY_RUN" == true ]]; then
+    echo "[DRY-RUN] Would write manifest to $MANIFEST_FILE"
+    return
+  fi
+  mkdir -p "$(dirname "$MANIFEST_FILE")"
+  : > "$MANIFEST_FILE"
+  echo "$DEST_BASE" >> "$MANIFEST_FILE"
 }
 
-# Use nullglob so patterns with no matches expand to nothing
-shopt -s nullglob
+# Create README.txt in /opt (plain text copy of README.md if present)
+if [[ -f "$SRC_DIR/README.md" ]]; then
+  if [[ "$DRY_RUN" == true ]]; then
+    echo "[DRY-RUN] Would create $README_TXT from README.md"
+  else
+    # Simple conversion: strip HTML tags used in README header and keep markdown
+    sed 's/<[^>]*>//g' "$SRC_DIR/README.md" > "$README_TXT" || cp -f "$SRC_DIR/README.md" "$README_TXT"
+    chmod 644 "$README_TXT"
+    echo "$README_TXT" >> "$MANIFEST_FILE"
+  fi
+fi
 
-# Desktop files
-desktop_files=("$INSTALL_DIR"/*.desktop)
+# Helper to rewrite Exec lines to absolute /opt paths
+rewrite_exec_cmd() {
+  local src_exec="$1"
+  local cmd="${src_exec#Exec=}"
+  cmd="${cmd//\$HOME/$DEST_BASE}"
+  cmd="${cmd//\~/$DEST_BASE}"
+  cmd="${cmd//$SRC_DIR/$DEST_BASE}"
+  cmd="${cmd//RGB-GPUs-Teaming.OP/$DEST_BASE}"
+  printf '%s' "$cmd"
+}
+
+shopt -s nullglob
+desktop_files=("$DEST_BASE"/*.desktop)
 if (( ${#desktop_files[@]} )); then
-    echo "Installing .desktop launchers..."
-    for file in "${desktop_files[@]}"; do
-        base="$(basename "$file")"
-        if [[ "$ALL_WAYS_EGPU" != true && "$base" == "all-ways-egpu-auto-setup.desktop" ]]; then
-            log "Skipping $base (all-ways-egpu not requested)"
-            continue
+  echo "Installing .desktop launchers to $DEST_DESKTOP_DIR..."
+  for src in "${desktop_files[@]}"; do
+    base="$(basename "$src")"
+    if [[ "$ALL_WAYS_EGPU" != true && "$base" == "all-ways-egpu-auto-setup.desktop" ]]; then
+      log "Skipping $base (all-ways-egpu not requested)"
+      continue
+    fi
+    exec_line="$(grep -m1 -E '^Exec=' "$src" || true)"
+    exec_cmd=""
+    if [[ -n "$exec_line" ]]; then
+      exec_cmd="$(rewrite_exec_cmd "$exec_line")"
+    fi
+    dest="$DEST_DESKTOP_DIR/$base"
+    if [[ "$DRY_RUN" == true ]]; then
+      echo "[DRY-RUN] Would install $dest (Exec: ${exec_cmd:-<none>})"
+    else
+      cp -f "$src" "$dest"
+      chmod 644 "$dest"
+      if [[ -n "$exec_cmd" ]]; then
+        if command -v desktop-file-edit >/dev/null 2>&1; then
+          desktop-file-edit --set-key=Exec --set-value="$exec_cmd" "$dest" || true
+          desktop-file-edit --set-key=TryExec --set-value="$(printf '%s' "$exec_cmd" | awk '{print $1}')" "$dest" || true
+        else
+          sed -i -E "s|^Exec=.*|Exec=${exec_cmd}|" "$dest"
+          if grep -qE '^TryExec=' "$dest"; then
+            sed -i -E "s|^TryExec=.*|TryExec=$(printf '%s' "$exec_cmd" | awk '{print $1}')|" "$dest"
+          else
+            printf 'TryExec=%s\n' "$(printf '%s' "$exec_cmd" | awk '{print $1}')" >> "$dest"
+          fi
         fi
-        dest="$DESKTOP_DIR/$base"
-        # Copy and set permissions, ensure ownership for the real user
-        cp -f "$file" "$dest"
-        chmod 644 "$dest"
-        if [[ "$(id -u)" -eq 0 && "$REAL_USER" != "root" ]]; then
-            chown "$REAL_USER":"$REAL_USER" "$dest" || true
-        fi
-        log "Installed $dest"
-    done
+      fi
+      echo "$dest" >> "$MANIFEST_FILE"
+      log "Installed $dest"
+    fi
+  done
 else
-    echo "No .desktop files found in $INSTALL_DIR"
+  echo "No .desktop files found in project."
 fi
 
 # Nautilus scripts
-nautilus_files=("$INSTALL_DIR/nautilus-scripts"/*)
-if (( ${#nautilus_files[@]} )); then
-    echo "Installing Nautilus scripts..."
-    for s in "${nautilus_files[@]}"; do
-        dest="$NAUTILUS_SCRIPTS_DIR/$(basename "$s")"
-        cp -f "$s" "$dest"
-        chmod 755 "$dest"
-        if [[ "$(id -u)" -eq 0 && "$REAL_USER" != "root" ]]; then
-            chown "$REAL_USER":"$REAL_USER" "$dest" || true
-        fi
-        log "Installed Nautilus script $dest"
-    done
+nautilus_src_dir="$DEST_BASE/nautilus-scripts"
+if [[ -d "$nautilus_src_dir" ]]; then
+  echo "Installing Nautilus scripts to $DEST_NAUTILUS_DIR..."
+  mkdir -p "$DEST_NAUTILUS_DIR"
+  for s in "$nautilus_src_dir"/*; do
+    dest="$DEST_NAUTILUS_DIR/$(basename "$s")"
+    if [[ "$DRY_RUN" == true ]]; then
+      echo "[DRY-RUN] Would install Nautilus script $dest"
+    else
+      cp -f "$s" "$dest"
+      chmod 755 "$dest"
+      echo "$dest" >> "$MANIFEST_FILE"
+      log "Installed Nautilus script $dest"
+    fi
+  done
 else
-    echo "No Nautilus scripts found in $INSTALL_DIR/nautilus-scripts"
+  echo "No Nautilus scripts found in project."
 fi
 
 # GNOME extension
 if [[ -d "$EXTENSION_SRC" ]]; then
-    echo "Installing GNOME extension: $EXTENSION_UUID"
-    # Copy files as the real user
-    if [[ -d "$EXTENSION_DEST" ]]; then
-        rm -rf "$EXTENSION_DEST"
-    fi
-    cp -r "$EXTENSION_SRC" "$EXTENSION_DEST"
-    # Ensure ownership and permissions
-    if [[ "$(id -u)" -eq 0 && "$REAL_USER" != "root" ]]; then
-        chown -R "$REAL_USER":"$REAL_USER" "$EXTENSION_DEST" || true
-    fi
+  echo "Installing GNOME extension to $EXTENSION_DEST..."
+  if [[ "$DRY_RUN" == true ]]; then
+    echo "[DRY-RUN] Would copy extension to $EXTENSION_DEST"
+  else
+    rm -rf "$EXTENSION_DEST"
+    cp -a "$EXTENSION_SRC" "$EXTENSION_DEST"
+    chmod -R 755 "$EXTENSION_DEST"
+    echo "$EXTENSION_DEST" >> "$MANIFEST_FILE"
     log "Copied extension to $EXTENSION_DEST"
+  fi
 
-    # Try to enable the extension as the real user
-    if command -v gnome-extensions &> /dev/null; then
-        echo "Attempting to enable GNOME extension (may require a running user session)..."
-        if [[ "$(id -u)" -eq 0 && "$REAL_USER" != "root" ]]; then
-            # Try enabling via sudo -u; this often fails if no session DBUS is available
-            if sudo -u "$REAL_USER" -- gnome-extensions enable "$EXTENSION_UUID"; then
-                echo "GNOME extension '$EXTENSION_UUID' enabled."
-            else
-                echo "Warning: enabling extension via CLI likely failed (no session DBUS)."
-                echo "To enable it in the user's session, run as the user inside their session:"
-                echo "  gnome-extensions enable $EXTENSION_UUID"
-            fi
-        else
-            if gnome-extensions enable "$EXTENSION_UUID"; then
-                echo "GNOME extension '$EXTENSION_UUID' enabled."
-            else
-                echo "Warning: failed to enable extension via CLI. You may need to enable it in GNOME Extensions app."
-            fi
-        fi
+  if command -v gnome-extensions >/dev/null 2>&1; then
+    if [[ "$DRY_RUN" == true ]]; then
+      echo "[DRY-RUN] Would attempt to enable $EXTENSION_UUID (may require user session)"
     else
-        echo "Warning: 'gnome-extensions' CLI not found. Extension copied but not enabled."
-        echo "Enable it in the GNOME Extensions app or install the CLI (gnome-shell-extension-prefs / gnome-extensions)."
+      if gnome-extensions enable "$EXTENSION_UUID" 2>/dev/null; then
+        echo "GNOME extension enabled (system-wide)."
+      else
+        echo "Note: enabling system-wide extension may require a user session. Enable it in the user's session if needed."
+      fi
     fi
+  else
+    echo "gnome-extensions CLI not available; extension copied but not enabled."
+  fi
 else
-    echo "GNOME extension folder not found: $EXTENSION_SRC"
+  echo "GNOME extension source not found at $EXTENSION_SRC"
 fi
 
-# Restore shell options
 shopt -u nullglob
 
-echo "Setup complete."
-echo "If something didn't work, re-run with --verbose and check the printed messages."
+# Write manifest if not dry-run
+if [[ "$DRY_RUN" == false ]]; then
+  manifest_write
+  chmod 644 "$MANIFEST_FILE" || true
+  echo "Install manifest written to $MANIFEST_FILE"
+fi
+
+echo "System-wide installation to /opt complete."
+echo "Desktop files installed to $DEST_DESKTOP_DIR"
+echo "Project files installed to $DEST_BASE"
+echo "If the extension does not appear, enable it in the user's GNOME session or run:"
+echo "  gnome-extensions enable $EXTENSION_UUID"
