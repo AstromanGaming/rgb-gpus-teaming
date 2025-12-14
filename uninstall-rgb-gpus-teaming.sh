@@ -87,7 +87,6 @@ if [[ -f "$MANIFEST" ]]; then
         run_rm "$item"
       else
         log "Preserving top-level directory: $OPT_BASE (use --remove-root to remove it)"
-        # remove contents but keep directory if desired
         if [[ "$DRY_RUN" == true ]]; then
           echo "[DRY-RUN] Would remove contents of: $OPT_BASE (preserve directory)"
         else
