@@ -3,6 +3,6 @@
   "name": "RGB GPUs Teaming",
   "description": "Add a button to launch an app with \"Launch with RGB GPUs Teaming\".",
   "shell-version": ["44", "45", "46", "47", "48", "49"],
-  "version": 16,
+  "version": 17,
   "type": "module"
 }

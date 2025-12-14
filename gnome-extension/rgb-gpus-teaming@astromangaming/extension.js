@@ -1,10 +1,11 @@
 // extension.js (ES module style for metadata "type": "module")
+// GNOME Shell 49 / GJS 1.86 compatible — pure ES module imports, exports init/enable/disable
 
 import GLib from 'gi://GLib';
-const Main = imports.ui.main;
-const PopupMenu = imports.ui.popupMenu || null;
-const AppMenuModule = imports.ui.appMenu || null;
-const AppDisplayModule = imports.ui.appDisplay || null;
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import * as AppMenuModule from 'resource:///org/gnome/shell/ui/appMenu.js';
+import * as AppDisplayModule from 'resource:///org/gnome/shell/ui/appDisplay.js';
 
 const EXTENSION_UUID = 'rgb-gpus-teaming@astromangaming';
 const LAUNCHER = '/opt/RGB-GPUs-Teaming.OP/gnome-launcher.sh';
@@ -33,7 +34,10 @@ function safeQuote(s) {
 }
 
 function insertLaunchItem(owner, command) {
-  if (!PopupMenu || !PopupMenu.PopupMenuItem) return;
+  if (!PopupMenu || !PopupMenu.PopupMenuItem) {
+    logDebug('PopupMenu API not available; skipping insertion.');
+    return;
+  }
   if (_owners.has(owner)) return;
   if (!scriptOk(LAUNCHER)) {
     logDebug(`Launcher missing: ${LAUNCHER}`);
@@ -51,6 +55,7 @@ function insertLaunchItem(owner, command) {
     }
   });
 
+  // Try several insertion strategies (different GNOME versions expose different shapes)
   let inserted = false;
   try {
     if (owner.menu && typeof owner.menu.addMenuItem === 'function') {
@@ -91,7 +96,7 @@ function insertLaunchItem(owner, command) {
 }
 
 function overrideMethod(obj, methodName, wrapperFactory) {
-  if (!obj?.prototype?.[methodName]) return false;
+  if (!obj || !obj.prototype || typeof obj.prototype[methodName] !== 'function') return false;
   const original = obj.prototype[methodName];
   const wrapped = wrapperFactory(original);
   _orig.push({ object: obj.prototype, name: methodName, original });
@@ -157,16 +162,21 @@ function makeAppIconWrapper(original) {
   };
 }
 
-export function init() {}
+// Module entry points
+export function init() {
+  // no-op
+}
 
 export function enable() {
   cleanupItems();
   restoreOverrides();
 
+  // Prefer AppMenu injection if available
   if (AppMenuModule?.AppMenu?.prototype?.open) {
     overrideMethod(AppMenuModule.AppMenu, 'open', makeAppMenuOpenWrapper);
     logDebug('Injected into AppMenu.open');
   } else if (AppDisplayModule?.AppIcon) {
+    // Fallback: try common AppIcon hook names across versions
     const methods = ['_onButtonPress', '_showContextMenu', 'open_context_menu', 'show_context_menu'];
     for (const m of methods) {
       if (AppDisplayModule.AppIcon.prototype?.[m]) {
