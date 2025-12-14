@@ -8,31 +8,36 @@ EXTENSION_SYS="/usr/share/gnome-shell/extensions/$EXTENSION_UUID"
 NAUTILUS_SCRIPT="/usr/share/nautilus/scripts/Launch with RGB GPUs Teaming"
 DESKTOP_DIR="/usr/share/applications"
 
-DRY_RUN=false
+# Default to safe behavior
+DRY_RUN=true
 VERBOSE=false
 REMOVE_ROOT=false
 CONFIRM_REMOVE=false
+YES=false
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [--dry-run] [--verbose] [--remove-root --confirm-remove-root] [--help]
+Usage: $(basename "$0") [--dry-run] [--verbose] [--remove-root --confirm-remove-root --yes] [--help]
 
 Options:
-  --dry-run                 Show actions without making changes.
+  --dry-run                 Show actions without making changes (default).
   --verbose                 Print detailed progress messages.
   --remove-root             Remove the top-level $OPT_BASE directory (dangerous).
-  --confirm-remove-root     Required together with --remove-root to actually remove the top-level directory.
+  --confirm-remove-root     Required together with --remove-root.
+  --yes                     Required together with --remove-root and --confirm-remove-root to actually delete.
   -h, --help                Show this help and exit.
 EOF
 }
 
-# Strict argument parsing: accept only known long options; reject typos like -dry-run
+# Strict parsing: reject unknown options
 while (( "$#" )); do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
+    --no-dry-run) DRY_RUN=false; shift ;;   # explicit opt-out
     --verbose) VERBOSE=true; shift ;;
     --remove-root) REMOVE_ROOT=true; shift ;;
     --confirm-remove-root) CONFIRM_REMOVE=true; shift ;;
+    --yes) YES=true; shift ;;
     -h|--help) usage; exit 0 ;;
     --*) echo "Error: unknown option '$1'"; usage; exit 2 ;;
     *) echo "Error: unexpected positional argument '$1'"; usage; exit 2 ;;
@@ -46,10 +51,12 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exit 2
 fi
 
-# Safety: require explicit confirmation to remove the top-level directory
-if [[ "$REMOVE_ROOT" == true && "$CONFIRM_REMOVE" != true ]]; then
-  echo "Refusing to remove $OPT_BASE: pass both --remove-root and --confirm-remove-root to proceed." >&2
-  exit 3
+# Safety: require all three flags to remove root
+if [[ "$REMOVE_ROOT" == true ]]; then
+  if [[ "$CONFIRM_REMOVE" != true || "$YES" != true ]]; then
+    echo "Refusing to remove $OPT_BASE: pass --remove-root --confirm-remove-root --yes to proceed." >&2
+    exit 3
+  fi
 fi
 
 run_rm() {
@@ -67,10 +74,10 @@ run_rm() {
   fi
 }
 
-echo "Uninstall: target $OPT_BASE (remove-root=$REMOVE_ROOT confirm-remove=$CONFIRM_REMOVE)"
+echo "Uninstall (safe mode). Target: $OPT_BASE"
 log "Options: dry-run=$DRY_RUN verbose=$VERBOSE remove-root=$REMOVE_ROOT"
 
-# If manifest exists, use it (reverse order). Preserve OPT_BASE unless explicitly requested.
+# If manifest exists, remove listed items (reverse order). Preserve OPT_BASE unless requested.
 if [[ -f "$MANIFEST" ]]; then
   log "Using manifest: $MANIFEST"
   mapfile -t items < "$MANIFEST"
@@ -81,18 +88,15 @@ if [[ -f "$MANIFEST" ]]; then
       if [[ "$REMOVE_ROOT" == true ]]; then
         run_rm "$item"
       else
-        log "Preserving top-level directory: $OPT_BASE (use --remove-root --confirm-remove-root to remove it)"
+        log "Preserving top-level directory: $OPT_BASE"
       fi
     else
       run_rm "$item"
     fi
   done
-
 else
-  log "No manifest found; removing only a conservative explicit list of known artifacts."
+  log "No manifest found; removing only a conservative explicit list."
 
-  # Conservative explicit list (only items the installer creates).
-  # Include the four OPT_BASE .desktop files you mentioned explicitly.
   declare -a items=(
     "$OPT_BASE/gnome-launcher.sh"
     "$OPT_BASE/gnome-setup.sh"
@@ -121,21 +125,18 @@ else
     run_rm "$p"
   done
 
-  # Remove desktop files from system location (if present)
   run_rm "$DESKTOP_DIR/advisor.desktop"
   run_rm "$DESKTOP_DIR/gnome-setup.desktop"
   run_rm "$DESKTOP_DIR/manual-setup.desktop"
   run_rm "$DESKTOP_DIR/all-ways-egpu-auto-setup.desktop"
 
-  # Nautilus script and system GNOME extension folder
   run_rm "$NAUTILUS_SCRIPT"
   run_rm "$EXTENSION_SYS"
 
-  # Remove top-level directory only if explicitly requested (and confirmed)
   if [[ "$REMOVE_ROOT" == true ]]; then
     run_rm "$OPT_BASE"
   else
-    log "Top-level directory preserved: $OPT_BASE (use --remove-root --confirm-remove-root to remove it)"
+    log "Top-level directory preserved: $OPT_BASE"
   fi
 fi
 
@@ -149,4 +150,4 @@ if command -v gnome-extensions &> /dev/null; then
   fi
 fi
 
-echo "Uninstall complete. Top-level directory preserved: $([[ "$REMOVE_ROOT" == true ]] && echo "no" || echo "yes")"
+echo "Uninstall finished (safe mode). Top-level directory preserved: $([[ "$REMOVE_ROOT" == true ]] && echo "no" || echo "yes")"
