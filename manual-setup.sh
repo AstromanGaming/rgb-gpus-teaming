@@ -13,8 +13,6 @@ set -euo pipefail
 # Options:
 #   --command, -c "<cmd>"   Run <cmd> immediately (non-interactive).
 #   --non-interactive       Do not prompt; use saved config (if any).
-#   --dry-run               Show actions without writing files or running commands.
-#   --verbose, -v           Print detailed logs.
 #   --help, -h              Show this help and exit.
 
 INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
@@ -23,11 +21,13 @@ SYSTEM_MEM_FILE="$SYSTEM_CONFIG_DIR/gpu_launcher_config"
 
 USER_MEM_FILE="$HOME/.gpu_launcher_config"
 
-REAL_USER="${SUDO_USER:-$USER}"
-REAL_HOME="$(getent passwd "$REAL_USER" | cut -d: -f6 || true)"
+# Prefer SUDO_USER when present; otherwise fall back to the current login name.
+REAL_USER="${SUDO_USER:-$(id -un 2>/dev/null || true)}"
+# Resolve REAL_HOME from passwd entry for REAL_USER; fall back to $HOME if needed.
+REAL_HOME="$(getent passwd "$REAL_USER" | cut -d: -f6 2>/dev/null || true)"
+REAL_HOME="${REAL_HOME:-$HOME}"
 
-VERBOSE=false
-DRY_RUN=false
+VERBOSE=true
 NONINTERACTIVE=false
 CMD=""
 
@@ -42,30 +42,31 @@ Usage:
 Options:
   --command, -c "<cmd>"   Run <cmd> immediately (non-interactive).
   --non-interactive       Do not prompt; use saved config (if any).
-  --verbose, -v           Print detailed logs.
-  --dry-run               Show actions without writing files or running commands.
   --help, -h              Show this help and exit.
-
-Behavior:
-  - When run as a normal user, config is read/written at: $USER_MEM_FILE
-  - When run as root, config is read/written at: $SYSTEM_MEM_FILE
-  - This script is NOT an installer; it only manages the small launcher config and can run commands.
 EOF
 }
 
-read_line() { read -r -p "$1" __tmp; printf '%s' "$__tmp"; }
+# Safe read helper: only prompt when stdin is a TTY
+read_line() {
+  local prompt="$1"
+  if [[ -t 0 ]]; then
+    read -r -p "$prompt" __tmp
+    printf '%s' "$__tmp"
+  else
+    # Non-interactive environment: return empty so caller can handle it
+    printf ''
+  fi
+}
 
-# Parse args
+# Parse args (strict: unknown args cause exit)
 while (( "$#" )); do
   case "$1" in
     --command|-c)
       if [[ -z "${2:-}" ]]; then err "--command requires an argument"; exit 2; fi
       CMD="$2"; NONINTERACTIVE=true; shift 2 ;;
     --non-interactive) NONINTERACTIVE=true; shift ;;
-    --verbose|-v) VERBOSE=true; shift ;;
-    --dry-run) DRY_RUN=true; shift ;;
     --help|-h) usage; exit 0 ;;
-    *) err "Unknown argument: $1"; shift ;;
+    *) err "Unknown argument: $1"; exit 2 ;;
   esac
 done
 
@@ -78,19 +79,27 @@ else
   log "Running as user; using user config: $MEM_FILE"
 fi
 
-# Ensure system config dir exists when writing system config (unless dry-run)
-if [[ "$(id -u)" -eq 0 && "$DRY_RUN" == false ]]; then
+# Ensure system config dir exists when writing system config
+if [[ "$(id -u)" -eq 0 ]]; then
   mkdir -p "$SYSTEM_CONFIG_DIR"
   chmod 0755 "$SYSTEM_CONFIG_DIR"
   log "Ensured system config dir: $SYSTEM_CONFIG_DIR"
 fi
 
-# Load previous configuration if present
+# Load previous configuration if present (guard sourcing)
 GPU_MODE=""
 DRI_PRIME=""
 if [[ -f "$MEM_FILE" ]]; then
-  # shellcheck disable=SC1090
-  source "$MEM_FILE"
+  # Source in a subshell to avoid accidental side-effects; capture variables afterwards.
+  (
+    set +e
+    # shellcheck disable=SC1090
+    source "$MEM_FILE" 2>/dev/null || true
+    printf 'GPU_MODE=%s\nDRI_PRIME=%s\n' "${GPU_MODE:-}" "${DRI_PRIME:-}"
+  ) > /tmp/.gpu_cfg.$$ || true
+  GPU_MODE="$(awk -F= '/^GPU_MODE=/ {sub(/^GPU_MODE=/,""); print}' /tmp/.gpu_cfg.$$ || true)"
+  DRI_PRIME="$(awk -F= '/^DRI_PRIME=/ {sub(/^DRI_PRIME=/,""); print}' /tmp/.gpu_cfg.$$ || true)"
+  rm -f /tmp/.gpu_cfg.$$ 2>/dev/null || true
   log "Loaded existing config: GPU_MODE=${GPU_MODE:-<none>} DRI_PRIME=${DRI_PRIME:-<none>}"
 else
   log "No existing config at $MEM_FILE"
@@ -102,7 +111,7 @@ if [[ "$NONINTERACTIVE" == true && -z "${GPU_MODE:-}" && -z "$CMD" ]]; then
   exit 3
 fi
 
-# Interactive configuration (skipped when NONINTERACTIVE true and CMD provided)
+# Interactive configuration (skipped when NONINTERACTIVE true or when a command was provided)
 if [[ "$NONINTERACTIVE" != true && -z "$CMD" ]]; then
   echo
   echo "Select GPU launch mode (press Enter to reuse saved configuration):"
@@ -142,27 +151,33 @@ if [[ "$NONINTERACTIVE" != true && -z "$CMD" ]]; then
         ;;
     esac
 
-    # Persist config (respect dry-run)
-    if [[ "$DRY_RUN" == true ]]; then
-      log "[DRY-RUN] Would write config to $MEM_FILE: GPU_MODE=$GPU_MODE DRI_PRIME=${DRI_PRIME:-<empty>}"
-      echo "Dry-run: config not written."
-    else
-      {
-        printf 'GPU_MODE="%s"\n' "$GPU_MODE"
-        if [[ -n "${DRI_PRIME:-}" ]]; then
-          printf 'DRI_PRIME="%s"\n' "$DRI_PRIME"
-        else
-          printf 'DRI_PRIME=""\n'
-        fi
-      } > "$MEM_FILE"
-      # If written to system location, ensure real user can read it
-      if [[ "$(id -u)" -eq 0 && -n "$REAL_USER" && "$REAL_USER" != "root" ]]; then
-        chown "$REAL_USER":"$REAL_USER" "$MEM_FILE" 2>/dev/null || true
-      fi
-      chmod 0644 "$MEM_FILE" 2>/dev/null || true
-      log "Wrote config to $MEM_FILE"
-      echo "Configuration saved to $MEM_FILE"
+    # Persist config
+    # Ensure parent directory exists for system config
+    if [[ "$(id -u)" -eq 0 ]]; then
+      mkdir -p "$(dirname "$MEM_FILE")"
     fi
+
+    {
+      printf 'GPU_MODE="%s"\n' "$GPU_MODE"
+      if [[ -n "${DRI_PRIME:-}" ]]; then
+        printf 'DRI_PRIME="%s"\n' "$DRI_PRIME"
+      else
+        printf 'DRI_PRIME=""\n'
+      fi
+    } > "$MEM_FILE"
+
+    # Only attempt chown if REAL_USER is non-empty and exists
+    if [[ "$(id -u)" -eq 0 && -n "$REAL_USER" ]]; then
+      if id -u "$REAL_USER" >/dev/null 2>&1; then
+        chown "$REAL_USER":"$REAL_USER" "$MEM_FILE" 2>/dev/null || true
+      else
+        log "Real user '$REAL_USER' not found; skipping chown"
+      fi
+    fi
+
+    chmod 0644 "$MEM_FILE" 2>/dev/null || true
+    log "Wrote config to $MEM_FILE"
+    echo "Configuration saved to $MEM_FILE"
   fi
 fi
 
@@ -173,6 +188,11 @@ elif [[ "$NONINTERACTIVE" == true ]]; then
   err "Non-interactive mode requested but no command provided; exiting."
   exit 4
 else
+  # If not a TTY, do not attempt to prompt
+  if [[ ! -t 0 ]]; then
+    err "No TTY available to prompt for a command; run with --command in non-interactive environments."
+    exit 5
+  fi
   read -r -e -p "Command to run (or press Enter to exit): " user_cmd
   if [[ -z "${user_cmd// /}" ]]; then
     log "No command entered; exiting."
@@ -188,33 +208,18 @@ echo
 run_cmd() {
   local cmd="$1"
   if [[ "${GPU_MODE:-}" == "NVIDIA_RENDER_OFFLOAD" ]]; then
-    if [[ "$DRY_RUN" == true ]]; then
-      log "[DRY-RUN] Would run with: __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia $cmd"
-      echo "[DRY-RUN] $cmd"
-    else
-      env __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia bash -lc "$cmd"
-    fi
+    env __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia bash -lc "$cmd"
   else
     if [[ -n "${DRI_PRIME:-}" ]]; then
-      if [[ "$DRY_RUN" == true ]]; then
-        log "[DRY-RUN] Would run with: DRI_PRIME=$DRI_PRIME $cmd"
-        echo "[DRY-RUN] $cmd"
-      else
-        env DRI_PRIME="$DRI_PRIME" bash -lc "$cmd"
-      fi
+      env DRI_PRIME="$DRI_PRIME" bash -lc "$cmd"
     else
-      if [[ "$DRY_RUN" == true ]]; then
-        log "[DRY-RUN] Would run: $cmd"
-        echo "[DRY-RUN] $cmd"
-      else
-        bash -lc "$cmd"
-      fi
+      bash -lc "$cmd"
     fi
   fi
 }
 
 # If command was provided via --command and not verbose, run in background (like a launcher)
-if [[ -n "$CMD" && "$VERBOSE" == false && "$DRY_RUN" == false ]]; then
+if [[ -n "$CMD" && "$VERBOSE" == false ]]; then
   run_cmd "$user_cmd" &
   printf 'Started command in background (PID %s)\n' "$!"
 else
