@@ -64,13 +64,44 @@ fi
 echo "Preparing system-wide install to $DEST_BASE"
 log "Options: all-ways-egpu=$ALL_WAYS_EGPU, verbose=$VERBOSE, dry-run=$DRY_RUN"
 
+# Resolve real paths to detect same-dir or nested installs
+real_src="$(realpath -s "$SRC_DIR")"
+real_dest_parent="$(realpath -s "$(dirname "$DEST_BASE")")"
+real_dest="$(realpath -s "$DEST_BASE" 2>/dev/null || true)"
+
+# Determine whether we are running from inside the destination
+SKIP_COPY=false
+if [[ -n "$real_dest" && "$real_src" == "$real_dest" ]]; then
+  log "Source directory is the same as destination ($real_src == $real_dest). Skipping copy step."
+  SKIP_COPY=true
+elif [[ -n "$real_dest" && "$real_src" == "$real_dest_parent" ]]; then
+  # unlikely but handle parent equality
+  log "Source directory equals destination parent; proceeding carefully."
+fi
+
 if [[ "$DRY_RUN" == true ]]; then
-  echo "[DRY-RUN] Would remove and copy project to $DEST_BASE"
+  if [[ "$SKIP_COPY" == true ]]; then
+    echo "[DRY-RUN] Would skip copying because source equals destination: $SRC_DIR"
+  else
+    echo "[DRY-RUN] Would remove and copy project to $DEST_BASE"
+  fi
 else
-  rm -rf "$DEST_BASE"
-  mkdir -p "$DEST_BASE"
-  cp -a "$SRC_DIR/." "$DEST_BASE/"
-  log "Copied project to $DEST_BASE"
+  if [[ "$SKIP_COPY" == true ]]; then
+    # Do not remove or copy; assume files are already in place
+    log "Skipping rm/cp because installer was invoked from inside $DEST_BASE."
+    mkdir -p "$DEST_BASE"
+  else
+    # Safe copy: remove old tree then copy
+    rm -rf "$DEST_BASE"
+    mkdir -p "$DEST_BASE"
+    # Prefer rsync if available to avoid cp self-copy issues
+    if command -v rsync >/dev/null 2>&1; then
+      rsync -a --delete --exclude='.git' --exclude='node_modules' "$SRC_DIR/" "$DEST_BASE/"
+    else
+      cp -a "$SRC_DIR/." "$DEST_BASE/"
+    fi
+    log "Copied project to $DEST_BASE"
+  fi
 fi
 
 # Create manifest
@@ -89,7 +120,6 @@ if [[ -f "$SRC_DIR/README.md" ]]; then
   if [[ "$DRY_RUN" == true ]]; then
     echo "[DRY-RUN] Would create $README_TXT from README.md"
   else
-    # Simple conversion: strip HTML tags used in README header and keep markdown
     sed 's/<[^>]*>//g' "$SRC_DIR/README.md" > "$README_TXT" || cp -f "$SRC_DIR/README.md" "$README_TXT"
     chmod 644 "$README_TXT"
     echo "$README_TXT" >> "$MANIFEST_FILE"
