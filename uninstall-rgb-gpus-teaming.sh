@@ -1,18 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# uninstall-rgb-gpus-teaming.sh
-# Conservative system-wide uninstaller for RGB-GPUs-Teaming.OP
-#
-# Usage:
-#   sudo ./uninstall-rgb-gpus-teaming.sh [--silent] [--dry-run] [--verbose] [--remove-root] [--help]
-#
-# Behavior:
-# - If install-manifest.txt exists, remove items listed there (reverse order).
-# - Otherwise remove only a safe, explicit list of known installed artifacts.
-# - By default the top-level /opt/RGB-GPUs-Teaming.OP directory is preserved.
-# - Use --remove-root to remove the top-level directory (dangerous).
-
 OPT_BASE="/opt/RGB-GPUs-Teaming.OP"
 MANIFEST="$OPT_BASE/install-manifest.txt"
 EXTENSION_UUID="rgb-gpus-teaming@astromangaming"
@@ -22,19 +10,17 @@ DESKTOP_DIR="/usr/share/applications"
 
 DRY_RUN=false
 VERBOSE=false
-SILENT=false
 REMOVE_ROOT=false
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [options]
+Usage: $(basename "$0") [--dry-run] [--verbose] [--remove-root] [--help]
 
 Options:
-  --dry-run       Show actions without making changes.
-  --verbose       Print detailed progress messages.
-  --silent        Suppress final informational messages.
-  --remove-root   Also remove the OPT_BASE directory itself (use with caution).
-  -h, --help      Show this help message and exit.
+  --dry-run     Show actions without making changes.
+  --verbose     Print detailed progress messages.
+  --remove-root Remove the top-level $OPT_BASE directory (use with caution).
+  -h, --help    Show this help and exit.
 EOF
 }
 
@@ -42,7 +28,6 @@ while (( "$#" )); do
   case "$1" in
     --dry-run) DRY_RUN=true; shift ;;
     --verbose) VERBOSE=true; shift ;;
-    --silent) SILENT=true; shift ;;
     --remove-root) REMOVE_ROOT=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Warning: unknown argument '$1' (ignored)"; shift ;;
@@ -50,7 +35,6 @@ while (( "$#" )); do
 done
 
 log() { [[ "$VERBOSE" == true ]] && printf '%s\n' "$*"; }
-err() { printf 'Error: %s\n' "$*" >&2; }
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "This script must be run as root. Re-run with sudo." >&2
@@ -72,29 +56,20 @@ run_rm() {
   fi
 }
 
-echo "Starting conservative uninstall of RGB-GPUs-Teaming from $OPT_BASE"
+echo "Uninstall: target $OPT_BASE (remove-root=$REMOVE_ROOT)"
 log "Options: dry-run=$DRY_RUN verbose=$VERBOSE remove-root=$REMOVE_ROOT"
 
-# If manifest exists, use it (most reliable)
+# If manifest exists, remove listed items (reverse order). Preserve OPT_BASE unless requested.
 if [[ -f "$MANIFEST" ]]; then
-  log "Found manifest: $MANIFEST"
+  log "Using manifest: $MANIFEST"
   mapfile -t items < "$MANIFEST"
   for ((i=${#items[@]}-1; i>=0; i--)); do
     item="${items[i]}"
-    # Protect OPT_BASE unless --remove-root specified
     if [[ "$item" == "$OPT_BASE" || "$item" == "$OPT_BASE/" ]]; then
       if [[ "$REMOVE_ROOT" == true ]]; then
         run_rm "$item"
       else
         log "Preserving top-level directory: $OPT_BASE (use --remove-root to remove it)"
-        if [[ "$DRY_RUN" == true ]]; then
-          echo "[DRY-RUN] Would remove contents of: $OPT_BASE (preserve directory)"
-        else
-          if [[ -d "$OPT_BASE" ]]; then
-            find "$OPT_BASE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-            log "Removed contents of: $OPT_BASE (directory preserved)"
-          fi
-        fi
       fi
     else
       run_rm "$item"
@@ -102,10 +77,10 @@ if [[ -f "$MANIFEST" ]]; then
   done
 
 else
-  log "No manifest found; using conservative explicit artifact list."
+  log "No manifest found; removing only known artifacts (conservative)."
 
-  # Conservative explicit list of files/dirs to remove (safe defaults)
-  declare -a opt_items=(
+  # Conservative explicit list (only items the installer creates)
+  declare -a items=(
     "$OPT_BASE/gnome-launcher.sh"
     "$OPT_BASE/gnome-setup.sh"
     "$OPT_BASE/manual-setup.sh"
@@ -123,46 +98,39 @@ else
     "$OPT_BASE/gnome-extension"
     "$OPT_BASE/.git"
     "$OPT_BASE/.github"
+    "$OPT_BASE/advisor.desktop"
+    "$OPT_BASE/gnome-setup.desktop"
+    "$OPT_BASE/manual-setup.desktop"
+    "$OPT_BASE/all-ways-egpu-auto-setup.desktop"
     "$DESKTOP_DIR/advisor.desktop"
     "$DESKTOP_DIR/gnome-setup.desktop"
     "$DESKTOP_DIR/manual-setup.desktop"
     "$DESKTOP_DIR/all-ways-egpu-auto-setup.desktop"
   )
 
-  for p in "${opt_items[@]}"; do
+  for p in "${items[@]}"; do
     run_rm "$p"
   done
 
-  # Nautilus script (explicit path)
   run_rm "$NAUTILUS_SCRIPT"
-
-  # System GNOME extension folder
   run_rm "$EXTENSION_SYS"
+
+  # Remove top-level directory only if explicitly requested
+  if [[ "$REMOVE_ROOT" == true ]]; then
+    run_rm "$OPT_BASE"
+  else
+    log "Top-level directory preserved: $OPT_BASE (use --remove-root to remove it)"
+  fi
 fi
 
-# Attempt to disable extension system-wide (best-effort)
+# Best-effort: disable system extension
 if command -v gnome-extensions &> /dev/null; then
   if [[ "$DRY_RUN" == true ]]; then
     echo "[DRY-RUN] Would attempt to disable extension: $EXTENSION_UUID"
-    log "[DRY-RUN] Would attempt to disable extension: $EXTENSION_UUID"
   else
-    log "Attempting to disable extension (best-effort)"
     gnome-extensions disable "$EXTENSION_UUID" 2>/dev/null || true
+    log "Attempted to disable extension: $EXTENSION_UUID"
   fi
-else
-  log "gnome-extensions CLI not available; extension may remain enabled until user session reload."
 fi
 
-if [[ "$SILENT" != true ]]; then
-  if [[ "$DRY_RUN" == true ]]; then
-    echo "Dry-run mode: no files were actually removed."
-  else
-    echo "Conservative uninstall complete."
-    if [[ "$REMOVE_ROOT" == true ]]; then
-      echo "Top-level directory $OPT_BASE was removed."
-    else
-      echo "Top-level directory $OPT_BASE was preserved."
-    fi
-    echo "If desktop entries still appear, run 'update-desktop-database' and/or log out and back in."
-  fi
-fi
+echo "Uninstall complete. Top-level directory preserved: $([[ "$REMOVE_ROOT" == true ]] && echo "no" || echo "yes")"
