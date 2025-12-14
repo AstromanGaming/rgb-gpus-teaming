@@ -10,7 +10,7 @@ set -euo pipefail
 # Notes:
 # - Designed for system-wide installs under /opt/RGB-GPUs-Teaming.OP
 # - If run without sudo it still works; no files are modified
-# - --json prints machine-readable output; --list prints a compact list
+# - --json prints machine-readable output; --list prints a compact list (one entry per line)
 
 INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
 SCRIPT_NAME="$(basename "$0")"
@@ -60,15 +60,20 @@ fi
 
 # Interactive prompt if method not provided
 if [[ -z "$METHOD" ]]; then
-  echo "Choose detection method:"
-  echo "1) glxinfo (render offload / DRI_PRIME detection)"
-  echo "2) lspci (PCI device list)"
-  read -r -p "Enter choice [1/2]: " choice
-  case "$choice" in
-    1) METHOD="glxinfo" ;;
-    2) METHOD="lspci" ;;
-    *) err "Invalid choice"; exit 1 ;;
-  esac
+  if [[ -t 0 ]]; then
+    echo "Choose detection method:"
+    echo "1) glxinfo (render offload / DRI_PRIME detection)"
+    echo "2) lspci (PCI device list)"
+    read -r -p "Enter choice [1/2]: " choice
+    case "$choice" in
+      1) METHOD="glxinfo" ;;
+      2) METHOD="lspci" ;;
+      *) err "Invalid choice"; exit 1 ;;
+    esac
+  else
+    err "No method provided and no TTY available to prompt; use --method"
+    exit 1
+  fi
 fi
 
 declare -A seen_gpus
@@ -179,6 +184,13 @@ if [[ "$OUTPUT_JSON" == true ]]; then
     fi
   done
   printf ']\n'
+fi
+
+# Pause before exit when running interactively and not producing machine-readable output
+if [[ -t 1 && "$OUTPUT_JSON" != true && "$OUTPUT_LIST" != true ]]; then
+  printf '\nPress Enter to continue...'
+  # read without printing input (in case of special chars)
+  IFS= read -r _
 fi
 
 exit 0
