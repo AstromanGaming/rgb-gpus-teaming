@@ -16,20 +16,19 @@ const EXCLUDED = new Set([
 let _orig = [];
 let _items = new Map();
 let _owners = new Set();
-let _dashSignals = [];
+let _dashSignals = []; // stores { obj, id } for disconnect/removal
+let _dashActorHandlers = []; // stores { actor, id } for actor signal handlers
+let _pollSourceId = 0;
 
-/* Logging helper */
 function logDebug(msg) {
   try { global.log(`[${EXTENSION_UUID}] ${msg}`); } catch (e) {}
 }
 
-/* Check script exists and is executable */
 function scriptOk(path) {
   try { return GLib.file_test(path, GLib.FileTest.EXISTS | GLib.FileTest.IS_EXECUTABLE); }
   catch (e) { return false; }
 }
 
-/* Shell-quote helper */
 function safeQuote(s) {
   try { return GLib.shell_quote(s); } catch (e) { return `'${s.replace(/'/g, "'\\''")}'`; }
 }
@@ -94,11 +93,26 @@ function cleanupItems() {
   }
   _items.clear();
   _owners.clear();
-  // disconnect dash signals
+
+  // disconnect dash delegate signals
   for (const s of _dashSignals) {
     try { s.obj.disconnect(s.id); } catch (e) {}
   }
   _dashSignals = [];
+
+  // disconnect actor handlers
+  for (const h of _dashActorHandlers) {
+    try { h.actor.disconnect(h.id); } catch (e) {}
+  }
+  _dashActorHandlers = [];
+
+  // remove poll source if present
+  try {
+    if (_pollSourceId) {
+      GLib.source_remove(_pollSourceId);
+      _pollSourceId = 0;
+    }
+  } catch (e) {}
 }
 
 /* AppMenu wrapper (application submenu) */
@@ -160,11 +174,9 @@ function attachToExistingDashItems() {
       } catch (e) {}
     }
 
-    // Ubuntu Dock specifics: some versions store launchers in Main.dash._launcher or Main.dash._items
-    if (Main.dash && Main.dash._launcher) {
-      try {
-        if (Array.isArray(Main.dash._launcher)) candidates.push(...Main.dash._launcher);
-      } catch (e) {}
+    // Ubuntu Dock / Dash-to-Dock specifics: some versions store launchers in Main.dash._launcher or _actors
+    if (Main.dash && Main.dash._launcher && Array.isArray(Main.dash._launcher)) {
+      candidates.push(...Main.dash._launcher);
     }
 
     // Deduplicate and attempt to insert when possible
@@ -182,8 +194,18 @@ function attachToExistingDashItems() {
           if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
         }
         if (command) {
-          // If the menu already exists, insert immediately; otherwise rely on delegate signals
           insertLaunchItem(owner, command);
+
+          // Also attach a lightweight button-press handler to ensure insertion on interaction
+          try {
+            if (owner.connect && typeof owner.connect === 'function') {
+              const id = owner.connect('button-press-event', () => {
+                try { insertLaunchItem(owner, command); } catch (e) {}
+                return false;
+              });
+              _dashActorHandlers.push({ actor: owner, id });
+            }
+          } catch (e) {}
         }
       } catch (e) {
         // ignore per-item errors
@@ -238,6 +260,31 @@ function connectDashDelegateSignals() {
   }
 }
 
+/* Polling fallback: some docks initialize after extensions load.
+   Poll a few times to catch Dash-to-Dock / Ubuntu Dock initialization. */
+function startDashPoll() {
+  try {
+    let attempts = 0;
+    const maxAttempts = 12; // poll for ~6 seconds (12 * 500ms)
+    _pollSourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+      try {
+        attachToExistingDashItems();
+        connectDashDelegateSignals();
+      } catch (e) {}
+      attempts++;
+      if (attempts >= maxAttempts) {
+        _pollSourceId = 0;
+        return false; // stop polling
+      }
+      return true; // continue polling
+    });
+    // store a dummy entry so cleanup removes it via GLib.source_remove
+    _dashSignals.push({ obj: GLib, id: _pollSourceId });
+  } catch (e) {
+    logDebug(`startDashPoll error: ${e}`);
+  }
+}
+
 /* Functional API expected by modern GNOME loaders */
 export function init() { /* no-op */ }
 
@@ -288,6 +335,9 @@ export function enable() {
 
   // Connect delegate signals (menu-created) as a robust fallback (covers Ubuntu Dock)
   connectDashDelegateSignals();
+
+  // Start polling for a short period to catch Dash-to-Dock / Ubuntu Dock initialization
+  startDashPoll();
 
   if (_orig.length === 0 && _dashSignals.length === 0) {
     logDebug('No injection points found; extension will not add menu items.');
