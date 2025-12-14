@@ -1,171 +1,70 @@
 import GLib from 'gi://GLib';
+import { Extension, InjectionManager } from 'resource:///org/gnome/shell/extensions/extension.js';
+import { AppMenu } from 'resource:///org/gnome/shell/ui/appMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-import * as AppMenuModule from 'resource:///org/gnome/shell/ui/appMenu.js';
-import * as AppDisplayModule from 'resource:///org/gnome/shell/ui/appDisplay.js';
 
-const EXTENSION_UUID = 'rgb-gpus-teaming@astromangaming';
-const LAUNCHER = '/opt/RGB-GPUs-Teaming.OP/gnome-launcher.sh';
-const EXCLUDED = new Set([
-  'advisor.desktop',
-  'gnome-setup.desktop',
-  'manual-setup.desktop',
-  'all-ways-egpu-auto-setup.desktop'
-]);
+export default class RgbGpusTeamingExtension extends Extension {
+    enable() {
+        this._injectionManager = new InjectionManager();
 
-let _orig = [];
-let _items = new Map();
-let _owners = new Set();
+        const excludedDesktopIds = [
+            'advisor.desktop',
+            'gnome-setup.desktop',
+            'manual-setup.desktop',
+            'all-ways-egpu-auto-setup.desktop',
+            'all-ways-egpu.desktop'
+        ];
 
-function logDebug(msg) {
-  try { global.log(`[${EXTENSION_UUID}] ${msg}`); } catch (e) {}
-}
+        this._injectionManager.overrideMethod(AppMenu.prototype, 'open', original => {
+            return function (...args) {
+                if (this._rgbGpuInjected) return original.call(this, ...args);
 
-function scriptOk(path) {
-  try { return GLib.file_test(path, GLib.FileTest.EXISTS | GLib.FileTest.IS_EXECUTABLE); }
-  catch (e) { return false; }
-}
+                const appInfo = this._app?.app_info;
+                if (!appInfo) return original.call(this, ...args);
 
-function safeQuote(s) {
-  try { return GLib.shell_quote(s); } catch (e) { return `'${s.replace(/'/g, "'\\''")}'`; }
-}
+                const desktopId = appInfo.get_id();
+                let command = appInfo.get_executable();
 
-/* Insert the launch item at the end of the menu or sub-menu.
-   Try several common menu containers used by GNOME. */
-function insertLaunchItem(owner, command) {
-  if (!PopupMenu || !PopupMenu.PopupMenuItem) return;
-  if (!owner) return;
-  if (_owners.has(owner)) return;
-  if (!scriptOk(LAUNCHER)) return;
+                // Exclude specific desktop files
+                if (excludedDesktopIds.includes(desktopId)) {
+                    log(`RGB GPUs Teaming: Skipping injection for excluded app ${desktopId}`);
+                    return original.call(this, ...args);
+                }
 
-  const item = new PopupMenu.PopupMenuItem('Launch with RGB GPUs Teaming');
-  item.connect('activate', () => {
-    try {
-      const cmd = `${safeQuote(LAUNCHER)} ${safeQuote(command)}`;
-      GLib.spawn_command_line_async(cmd);
-      if (Main.overview?.visible) Main.overview.hide();
-    } catch (e) { logDebug(`spawn failed: ${e}`); }
-  });
+                if (command?.includes('flatpak') && desktopId?.endsWith('.desktop')) {
+                    const flatpakId = desktopId.replace('.desktop', '');
+                    command = `flatpak run ${flatpakId}`;
+                }
 
-  // Append to common menu containers (no index => append/end)
-  try { if (owner._appMenu && typeof owner._appMenu.addMenuItem === 'function') owner._appMenu.addMenuItem(item); } catch (e) {}
-  try { if (owner.menu && typeof owner.menu.addMenuItem === 'function') owner.menu.addMenuItem(item); } catch (e) {}
-  try { if (owner._menu && typeof owner._menu.addMenuItem === 'function') owner._menu.addMenuItem(item); } catch (e) {}
-  try { if (owner.addMenuItem && typeof owner.addMenuItem === 'function') owner.addMenuItem(item); } catch (e) {}
+                if (!command) return original.call(this, ...args);
 
-  // Some implementations expose getMenu(); try to append if available
-  try {
-    if (typeof owner.getMenu === 'function') {
-      const m = owner.getMenu();
-      if (m && typeof m.addMenuItem === 'function') m.addMenuItem(item);
+                // Use system install path under /opt
+                const scriptPath = GLib.build_filenamev([
+                    '/opt',
+                    'RGB-GPUs-Teaming.OP',
+                    'gnome-launcher.sh'
+                ]);
+
+                if (!GLib.file_test(scriptPath, GLib.FileTest.EXISTS | GLib.FileTest.IS_EXECUTABLE)) {
+                    log(`RGB GPUs Teaming: Script not found or not executable at ${scriptPath}`);
+                    return original.call(this, ...args);
+                }
+
+                log(`RGB GPUs Teaming: Injecting for ${desktopId} with command ${command}`);
+
+                this.addAction('Launch with RGB GPUs Teaming', () => {
+                    GLib.spawn_command_line_async(`${scriptPath} "${command}"`);
+                    if (Main.overview.visible) Main.overview.hide();
+                });
+
+                this._rgbGpuInjected = true;
+
+                return original.call(this, ...args);
+            };
+        });
     }
-  } catch (e) {}
 
-  _owners.add(owner);
-  _items.set(owner, item);
-}
-
-function overrideMethod(obj, methodName, wrapperFactory) {
-  if (!obj?.prototype?.[methodName]) return false;
-  const original = obj.prototype[methodName];
-  const wrapped = wrapperFactory(original);
-  _orig.push({ object: obj.prototype, name: methodName, original });
-  obj.prototype[methodName] = wrapped;
-  return true;
-}
-
-function restoreOverrides() {
-  for (const e of _orig) {
-    try { e.object[e.name] = e.original; } catch (ex) {}
-  }
-  _orig = [];
-}
-
-function cleanupItems() {
-  for (const item of _items.values()) {
-    try { item?.destroy?.(); } catch (e) {}
-  }
-  _items.clear();
-  _owners.clear();
-}
-
-function makeAppMenuOpenWrapper(original) {
-  return function (...args) {
-    try {
-      const appInfo = this._app?.app_info;
-      let desktopId = appInfo?.get_id?.();
-      let command = appInfo?.get_executable?.();
-
-      if (!(desktopId && EXCLUDED.has(desktopId))) {
-        if ((!command || command.length === 0) && desktopId?.endsWith('.desktop')) {
-          const flatpakId = desktopId.replace(/\.desktop$/, '');
-          if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
-        }
-        if (command) insertLaunchItem(this, command);
-      }
-    } catch (e) { logDebug(`AppMenu wrapper error: ${e}`); }
-    return original.apply(this, args);
-  };
-}
-
-function makeAppIconWrapper(original) {
-  return function (...args) {
-    const result = original.apply(this, args);
-    try {
-      const appInfo = (this.app || this._app || this._delegate?.app)?.app_info;
-      let desktopId = appInfo?.get_id?.();
-      let command = appInfo?.get_executable?.();
-
-      if (!(desktopId && EXCLUDED.has(desktopId))) {
-        if ((!command || command.length === 0) && desktopId?.endsWith('.desktop')) {
-          const flatpakId = desktopId.replace(/\.desktop$/, '');
-          if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
-        }
-        if (command) insertLaunchItem(this, command);
-      }
-    } catch (e) { logDebug(`AppIcon wrapper error: ${e}`); }
-    return result;
-  };
-}
-
-/* Functional API expected by modern GNOME loaders */
-export function init() { /* no-op */ }
-
-export function enable() {
-  cleanupItems();
-  restoreOverrides();
-
-  // Inject into AppMenu.open if available (application submenu)
-  if (AppMenuModule?.AppMenu?.prototype?.open) {
-    overrideMethod(AppMenuModule.AppMenu, 'open', makeAppMenuOpenWrapper);
-    logDebug('Injected into AppMenu.open');
-  }
-
-  // Inject into AppIcon methods used by the overview / app grid
-  if (AppDisplayModule?.AppIcon) {
-    const methods = ['_onButtonPress', '_showContextMenu', 'open_context_menu', 'show_context_menu'];
-    for (const m of methods) {
-      if (AppDisplayModule.AppIcon.prototype?.[m]) {
-        overrideMethod(AppDisplayModule.AppIcon, m, makeAppIconWrapper);
-        logDebug(`Injected into AppIcon.${m}`);
-      }
+    disable() {
+        this._injectionManager.clear();
     }
-  }
-
-  if (_orig.length === 0) {
-    logDebug('No injection points found; extension will not add menu items.');
-  }
-}
-
-export function disable() {
-  cleanupItems();
-  restoreOverrides();
-}
-
-/* Default class export to satisfy loaders that call `new extensionModule.default()` */
-export default class RgbGpusTeamingExtension {
-  constructor() { /* optional state */ }
-  init() { return init(); }
-  enable() { return enable(); }
-  disable() { return disable(); }
 }
