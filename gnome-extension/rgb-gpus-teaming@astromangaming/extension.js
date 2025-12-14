@@ -1,3 +1,4 @@
+sudo tee /usr/share/gnome-shell/extensions/rgb-gpus-teaming@astromangaming/extension.js > /dev/null <<'EOF'
 /* extension.js - compatibility-focused, GJS-style imports */
 
 const { GLib } = imports.gi;
@@ -47,7 +48,6 @@ function insertLaunchItem(owner, command) {
         } catch (e) { logDebug(`spawn failed: ${e}`); }
     });
 
-    // Try several insertion points
     try {
         if (owner.menu && typeof owner.menu.addMenuItem === 'function') owner.menu.addMenuItem(item, 0);
         else if (typeof owner.addMenuItem === 'function') owner.addMenuItem(item, 0);
@@ -95,7 +95,7 @@ function appMenuWrapper(original) {
 
             if (!(desktopId && EXCLUDED.has(desktopId))) {
                 if ((!command || command.length === 0) && desktopId && desktopId.endsWith('.desktop')) {
-                    const flatpakId = desktopId.replace(/\.desktop$/, '');
+                    const flatpakId = desktopId.replace(/\\.desktop$/, '');
                     if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
                 }
                 if (command) insertLaunchItem(this, command);
@@ -117,7 +117,7 @@ function appIconWrapper(original) {
 
             if (!(desktopId && EXCLUDED.has(desktopId))) {
                 if ((!command || command.length === 0) && desktopId && desktopId.endsWith('.desktop')) {
-                    const flatpakId = desktopId.replace(/\.desktop$/, '');
+                    const flatpakId = desktopId.replace(/\\.desktop$/, '');
                     if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
                 }
                 if (command) insertLaunchItem(this, command);
@@ -127,19 +127,16 @@ function appIconWrapper(original) {
     };
 }
 
-/* GNOME extension entry points */
 function init() { /* nothing */ }
 
 function enable() {
     cleanup();
     restore();
 
-    // AppMenu injection
     if (AppMenu && AppMenu.AppMenu && typeof AppMenu.AppMenu.prototype.open === 'function') {
         overrideMethod(AppMenu.AppMenu, 'open', appMenuWrapper);
         logDebug('Injected AppMenu.open');
     } else if (AppDisplay && AppDisplay.AppIcon) {
-        // fallback: try AppIcon methods
         const iconClass = AppDisplay.AppIcon;
         const methods = ['_onButtonPress', '_showContextMenu', 'open_context_menu', 'show_context_menu'];
         for (let m of methods) {
@@ -159,3 +156,5 @@ function disable() {
 }
 
 var extension = { init: init, enable: enable, disable: disable };
+EOF
+sudo chmod 644 /usr/share/gnome-shell/extensions/rgb-gpus-teaming@astromangaming/extension.js
