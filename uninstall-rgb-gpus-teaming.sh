@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# uninstall-rgb-gpus-teaming.sh
+#
+# Usage:
+#   sudo ./uninstall-rgb-gpus-teaming.sh [--confirm] [--silent] [--help]
+
 OPT_BASE="/opt/RGB-GPUs-Teaming.OP"
 MANIFEST="$OPT_BASE/install-manifest.txt"
 EXTENSION_UUID="rgb-gpus-teaming@astromangaming"
@@ -8,94 +13,153 @@ EXTENSION_SYS="/usr/share/gnome-shell/extensions/$EXTENSION_UUID"
 NAUTILUS_SCRIPT="/usr/share/nautilus/scripts/Launch with RGB GPUs Teaming"
 DESKTOP_DIR="/usr/share/applications"
 
-# Default to safe behavior
+# Defaults
 DRY_RUN=true
-VERBOSE=false
-REMOVE_ROOT=false
-CONFIRM_REMOVE=false
-YES=false
+VERBOSE=true
+SILENT=false
+CONFIRM=false
+
+# Save original args so we can re-exec with sudo preserving them
+ORIG_ARGS=( "$@" )
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [--dry-run] [--verbose] [--remove-root --confirm-remove-root --yes] [--help]
+Usage: $(basename "$0") [options]
 
 Options:
-  --dry-run                 Show actions without making changes (default).
-  --verbose                 Print detailed progress messages.
-  --remove-root             Remove the top-level $OPT_BASE directory (dangerous).
-  --confirm-remove-root     Required together with --remove-root.
-  --yes                     Required together with --remove-root and --confirm-remove-root to actually delete.
-  -h, --help                Show this help and exit.
+  --confirm                Actually perform removals.
+  --silent                 Minimize output (errors still printed).
+  -h, --help               Show this help and exit.
 EOF
 }
 
 # Strict parsing: reject unknown options
 while (( "$#" )); do
   case "$1" in
-    --dry-run) DRY_RUN=true; shift ;;
-    --no-dry-run) DRY_RUN=false; shift ;;   # explicit opt-out
-    --verbose) VERBOSE=true; shift ;;
-    --remove-root) REMOVE_ROOT=true; shift ;;
-    --confirm-remove-root) CONFIRM_REMOVE=true; shift ;;
-    --yes) YES=true; shift ;;
+    --confirm) CONFIRM=true; DRY_RUN=false; shift ;;
+    --silent) SILENT=true; shift ;;
     -h|--help) usage; exit 0 ;;
     --*) echo "Error: unknown option '$1'"; usage; exit 2 ;;
     *) echo "Error: unexpected positional argument '$1'"; usage; exit 2 ;;
   esac
 done
 
-log() { [[ "$VERBOSE" == true ]] && printf '%s\n' "$*"; }
+# Logging helpers
+log() { [[ "$SILENT" != true ]] && printf '[%s] %s\n' "$(date +'%F %T')" "$*"; }
+info() { [[ "$SILENT" == true ]] && return 0; printf '%s\n' "$*"; }
+err() { printf '%s\n' "$*" >&2; }
 
+# Canonicalization and containment check
+# Sets OPT_BASE_CANON once and returns canonical path in CANON_PATH.
+# Returns 0 if candidate canonicalizes and is inside OPT_BASE, else 1.
+canonicalize_and_check() {
+  local candidate="$1"
+
+  # Compute canonical OPT_BASE once
+  if [[ -z "${OPT_BASE_CANON+x}" ]]; then
+    if command -v readlink >/dev/null 2>&1; then
+      OPT_BASE_CANON="$(readlink -f -- "$OPT_BASE" 2>/dev/null || true)"
+    fi
+    if [[ -z "${OPT_BASE_CANON:-}" ]]; then
+      if command -v python3 >/dev/null 2>&1; then
+        OPT_BASE_CANON="$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$OPT_BASE" 2>/dev/null || true)"
+      fi
+    fi
+    OPT_BASE_CANON="${OPT_BASE_CANON:-$OPT_BASE}"
+  fi
+
+  # Make candidate absolute if relative
+  if [[ "$candidate" != /* ]]; then
+    candidate="$OPT_BASE/$candidate"
+  fi
+
+  # Canonicalize candidate
+  if command -v readlink >/dev/null 2>&1; then
+    CANON_PATH="$(readlink -f -- "$candidate" 2>/dev/null || true)"
+  else
+    if command -v python3 >/dev/null 2>&1; then
+      CANON_PATH="$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$candidate" 2>/dev/null || true)"
+    else
+      CANON_PATH="$candidate"
+    fi
+  fi
+  CANON_PATH="${CANON_PATH:-$candidate}"
+
+  # Ensure containment: CANON_PATH must be OPT_BASE_CANON or under it
+  case "$CANON_PATH" in
+    "$OPT_BASE_CANON" | "$OPT_BASE_CANON"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# If not root, re-exec with sudo unless running no-confirm (DRY_RUN)
 if [[ "$(id -u)" -ne 0 ]]; then
-  echo "This script must be run as root. Re-run with sudo." >&2
-  exit 2
-fi
-
-# Safety: require all three flags to remove root
-if [[ "$REMOVE_ROOT" == true ]]; then
-  if [[ "$CONFIRM_REMOVE" != true || "$YES" != true ]]; then
-    echo "Refusing to remove $OPT_BASE: pass --remove-root --confirm-remove-root --yes to proceed." >&2
-    exit 3
+  if [[ "$DRY_RUN" == true ]]; then
+    err "Warning: running in No Confirmed mode as non-root; some actions may require root"
+  else
+    err "This script must be run as root to perform removals. Re-running with sudo..."
+    exec sudo "$0" "${ORIG_ARGS[@]}"
   fi
 fi
+
+# Header (labels: "No Confirmed" and "Confirmed")
+info ''
+info '# uninstall-rgb-gpus-teaming.sh'
+info "# Target: $OPT_BASE"
+info "# Mode: $([[ "$DRY_RUN" == true ]] && echo "No Confirmed (simulation)" || echo "Confirmed (destructive)")"
+info ''
 
 run_rm() {
   local path="$1"
   if [[ "$DRY_RUN" == true ]]; then
-    echo "[DRY-RUN] Would remove: $path"
-    log "[DRY-RUN] Would remove: $path"
+    info "[NO CONFIRM] Would remove: $path"
+    log "[NO CONFIRM] Would remove: $path"
+    return 0
+  fi
+
+  if [[ -e "$path" || -L "$path" ]]; then
+    rm -rf -- "$path"
+    log "Removed: $path"
+    return 0
   else
-    if [[ -e "$path" ]]; then
-      rm -rf -- "$path"
-      log "Removed: $path"
-    else
-      log "Not found (skipping): $path"
-    fi
+    log "Not found (skipping): $path"
+    return 0
   fi
 }
 
-echo "Uninstall (safe mode). Target: $OPT_BASE"
-log "Options: dry-run=$DRY_RUN verbose=$VERBOSE remove-root=$REMOVE_ROOT"
+info "Uninstall starting. Target: $OPT_BASE"
+log "Options: confirm=$CONFIRM silent=$SILENT"
 
-# If manifest exists, remove listed items (reverse order). Preserve OPT_BASE unless requested.
+# If manifest exists, remove listed items (reverse order). If --confirm was passed, top-level will be removed.
 if [[ -f "$MANIFEST" ]]; then
   log "Using manifest: $MANIFEST"
-  mapfile -t items < "$MANIFEST"
-  for ((i=${#items[@]}-1; i>=0; i--)); do
-    item="${items[i]}"
-    item_norm="${item%/}"
-    if [[ "$item_norm" == "$OPT_BASE" ]]; then
-      if [[ "$REMOVE_ROOT" == true ]]; then
-        run_rm "$item"
+  mapfile -t raw_items < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$MANIFEST")
+
+  for ((i=${#raw_items[@]}-1; i>=0; i--)); do
+    item="${raw_items[i]}"
+    item="${item#"${item%%[![:space:]]*}"}"
+    item="${item%"${item##*[![:space:]]}"}"
+    [[ -z "$item" ]] && continue
+
+    if ! canonicalize_and_check "$item"; then
+      log "Skipping unsafe or out-of-tree path (not under $OPT_BASE): $item"
+      continue
+    fi
+    item_norm="${CANON_PATH%/}"
+
+    # If item is the top-level OPT_BASE, only remove when CONFIRM is true
+    if [[ "$item_norm" == "${OPT_BASE%/}" ]]; then
+      if [[ "$CONFIRM" == true ]]; then
+        run_rm "$item_norm"
       else
-        log "Preserving top-level directory: $OPT_BASE"
+        log "Top-level directory preserved (pass --confirm to remove): $OPT_BASE"
       fi
     else
-      run_rm "$item"
+      run_rm "$item_norm"
     fi
   done
 else
-  log "No manifest found; removing only a conservative explicit list."
+  log "No manifest found; removing a conservative explicit list."
 
   declare -a items=(
     "$OPT_BASE/gnome-launcher.sh"
@@ -122,32 +186,46 @@ else
   )
 
   for p in "${items[@]}"; do
-    run_rm "$p"
+    if canonicalize_and_check "$p"; then
+      run_rm "${CANON_PATH%/}"
+    else
+      log "Skipping unsafe or out-of-tree path (not under $OPT_BASE): $p"
+    fi
   done
 
-  run_rm "$DESKTOP_DIR/advisor.desktop"
-  run_rm "$DESKTOP_DIR/gnome-setup.desktop"
-  run_rm "$DESKTOP_DIR/manual-setup.desktop"
-  run_rm "$DESKTOP_DIR/all-ways-egpu-auto-setup.desktop"
-
-  run_rm "$NAUTILUS_SCRIPT"
-  run_rm "$EXTENSION_SYS"
-
-  if [[ "$REMOVE_ROOT" == true ]]; then
-    run_rm "$OPT_BASE"
+  # System-level items (outside OPT_BASE) — removed only when --confirm passed
+  if [[ "$CONFIRM" == true ]]; then
+    run_rm "$DESKTOP_DIR/advisor.desktop"
+    run_rm "$DESKTOP_DIR/gnome-setup.desktop"
+    run_rm "$DESKTOP_DIR/manual-setup.desktop"
+    run_rm "$DESKTOP_DIR/all-ways-egpu-auto-setup.desktop"
+    run_rm "$NAUTILUS_SCRIPT"
+    run_rm "$EXTENSION_SYS"
   else
-    log "Top-level directory preserved: $OPT_BASE"
+    log "System-level items preserved (pass --confirm to remove): desktop entries, nautilus script, extension"
+  fi
+
+  # Remove top-level OPT_BASE only when --confirm passed
+  if [[ "$CONFIRM" == true ]]; then
+    if canonicalize_and_check "$OPT_BASE"; then
+      run_rm "${CANON_PATH%/}"
+    else
+      err "Refusing to remove $OPT_BASE: canonicalization failed or not contained."
+      exit 4
+    fi
+  else
+    log "Top-level directory preserved (pass --confirm to remove): $OPT_BASE"
   fi
 fi
 
-# Best-effort: disable system extension
-if command -v gnome-extensions &> /dev/null; then
-  if [[ "$DRY_RUN" == true ]]; then
-    echo "[DRY-RUN] Would attempt to disable extension: $EXTENSION_UUID"
-  else
+# Best-effort: disable system extension (only when confirmed)
+if command -v gnome-extensions >/dev/null 2>&1; then
+  if [[ "$CONFIRM" == true ]]; then
     gnome-extensions disable "$EXTENSION_UUID" 2>/dev/null || true
     log "Attempted to disable extension: $EXTENSION_UUID"
+  else
+    log "Skipping extension disable (pass --confirm to disable): $EXTENSION_UUID"
   fi
 fi
 
-echo "Uninstall finished (safe mode). Top-level directory preserved: $([[ "$REMOVE_ROOT" == true ]] && echo "no" || echo "yes")"
+info "Uninstall finished. Top-level directory removed: $([[ "$CONFIRM" == true ]] && echo "yes" || echo "no")"
