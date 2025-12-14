@@ -4,7 +4,11 @@ set -euo pipefail
 # uninstall-rgb-gpus-teaming.sh
 #
 # Usage:
-#   sudo ./uninstall-rgb-gpus-teaming.sh [--confirm] [--silent] [--help]
+#   sudo ./uninstall-rgb-gpus-teaming.sh [--confirm] [--help]
+#
+# Notes:
+#  - By default the script runs in safe (simulation) mode.
+#  - Pass --confirm to perform actual removals.
 
 OPT_BASE="/opt/RGB-GPUs-Teaming.OP"
 MANIFEST="$OPT_BASE/install-manifest.txt"
@@ -16,7 +20,6 @@ DESKTOP_DIR="/usr/share/applications"
 # Defaults
 DRY_RUN=true
 VERBOSE=true
-SILENT=false
 CONFIRM=false
 
 # Save original args so we can re-exec with sudo preserving them
@@ -28,25 +31,26 @@ Usage: $(basename "$0") [options]
 
 Options:
   --confirm                Actually perform removals.
-  --silent                 Minimize output (errors still printed).
   -h, --help               Show this help and exit.
+
+Notes:
+  - By default the script only simulates actions. Pass --confirm to run for real.
 EOF
 }
 
-# Strict parsing: reject unknown options
+# Strict parsing: reject unknown options (except --confirm)
 while (( "$#" )); do
   case "$1" in
     --confirm) CONFIRM=true; DRY_RUN=false; shift ;;
-    --silent) SILENT=true; shift ;;
     -h|--help) usage; exit 0 ;;
     --*) echo "Error: unknown option '$1'"; usage; exit 2 ;;
     *) echo "Error: unexpected positional argument '$1'"; usage; exit 2 ;;
   esac
 done
 
-# Logging helpers
-log() { [[ "$SILENT" != true ]] && printf '[%s] %s\n' "$(date +'%F %T')" "$*"; }
-info() { [[ "$SILENT" == true ]] && return 0; printf '%s\n' "$*"; }
+# Logging helpers (no --silent support)
+log() { [[ "$VERBOSE" == true ]] && printf '[%s] %s\n' "$(date +'%F %T')" "$*"; }
+info() { printf '%s\n' "$*"; }
 err() { printf '%s\n' "$*" >&2; }
 
 # Canonicalization and containment check
@@ -92,28 +96,28 @@ canonicalize_and_check() {
   esac
 }
 
-# If not root, re-exec with sudo unless running no-confirm (DRY_RUN)
+# If not root, re-exec with sudo unless running simulation (DRY_RUN)
 if [[ "$(id -u)" -ne 0 ]]; then
   if [[ "$DRY_RUN" == true ]]; then
-    err "Warning: running in No Confirmed mode as non-root; some actions may require root"
+    err "Warning: running in simulation mode as non-root; some actions may require root"
   else
     err "This script must be run as root to perform removals. Re-running with sudo..."
     exec sudo "$0" "${ORIG_ARGS[@]}"
   fi
 fi
 
-# Header (labels: "No Confirmed" and "Confirmed")
+# Header
 info ''
 info '# uninstall-rgb-gpus-teaming.sh'
 info "# Target: $OPT_BASE"
-info "# Mode: $([[ "$DRY_RUN" == true ]] && echo "No Confirmed (simulation)" || echo "Confirmed (destructive)")"
+info "# Mode: $([[ "$DRY_RUN" == true ]] && echo "Simulation (no removals)" || echo "Confirmed (destructive)")"
 info ''
 
 run_rm() {
   local path="$1"
   if [[ "$DRY_RUN" == true ]]; then
-    info "[NO CONFIRM] Would remove: $path"
-    log "[NO CONFIRM] Would remove: $path"
+    info "[SIMULATION] Would remove: $path"
+    log "[SIMULATION] Would remove: $path"
     return 0
   fi
 
@@ -128,9 +132,9 @@ run_rm() {
 }
 
 info "Uninstall starting. Target: $OPT_BASE"
-log "Options: confirm=$CONFIRM silent=$SILENT"
+log "Options: confirm=$CONFIRM verbose=$VERBOSE"
 
-# If manifest exists, remove listed items (reverse order). If --confirm was passed, top-level will be removed.
+# If manifest exists, remove listed items (reverse order). Top-level removed only when --confirm passed.
 if [[ -f "$MANIFEST" ]]; then
   log "Using manifest: $MANIFEST"
   mapfile -t raw_items < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$MANIFEST")

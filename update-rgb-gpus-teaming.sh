@@ -4,7 +4,7 @@ set -euo pipefail
 # update-rgb-gpus-teaming.sh
 #
 # Usage:
-#   sudo ./update-rgb-gpus-teaming.sh [--all-ways-egpu] [--silent] [--help]
+#   sudo ./update-rgb-gpus-teaming.sh [--all-ways-egpu] [--help]
 
 INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
 INSTALL_SCRIPT="$INSTALL_BASE/install-rgb-gpus-teaming.sh"
@@ -12,7 +12,6 @@ UNINSTALL_SCRIPT="$INSTALL_BASE/reinstall-rgb-gpus-teaming.sh"
 GIT_DIR="$INSTALL_BASE/.git"
 
 ALL_WAYS_EGPU=false
-SILENT=false
 VERBOSE=true   # verbose enabled by default
 
 # Save original args so we can re-exec with sudo preserving them
@@ -24,7 +23,6 @@ Usage: $(basename "$0") [options]
 
 Options:
   --all-ways-egpu    Pass this flag to reinstall/install scripts to include the all-ways-egpu addon.
-  --silent           Run in silent mode (minimize prompts/output).
   -h, --help         Show this help message and exit.
 EOF
 }
@@ -33,23 +31,17 @@ EOF
 while (( "$#" )); do
   case "$1" in
     --all-ways-egpu) ALL_WAYS_EGPU=true; shift ;;
-    --silent) SILENT=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'Warning: unknown argument %q (ignored)\n' "$1" >&2; shift ;;
   esac
 done
 
-# If silent requested, disable verbose logging
-if [[ "$SILENT" == true ]]; then
-  VERBOSE=false
-fi
-
-log() { [[ "$VERBOSE" == true && "$SILENT" != true ]] && printf '[%s] %s\n' "$(date +'%F %T')" "$*"; }
-info() { [[ "$SILENT" == true ]] && return 0; printf '%s\n' "$*"; }
+log() { [[ "$VERBOSE" == true ]] && printf '[%s] %s\n' "$(date +'%F %T')" "$*"; }
+info() { printf '%s\n' "$*"; }
 err() { printf '%s\n' "$*" >&2; }
 
 info "Update/reinstall for system install at $INSTALL_BASE"
-log "Options: all-ways-egpu=$ALL_WAYS_EGPU, silent=$SILENT"
+log "Options: all-ways-egpu=$ALL_WAYS_EGPU"
 
 if [[ ! -d "$INSTALL_BASE" ]]; then
   err "Error: system install directory not found: $INSTALL_BASE"
@@ -76,7 +68,6 @@ fi
 # Build flags to pass to reinstall/install scripts
 script_flags=()
 [[ "$ALL_WAYS_EGPU" == true ]] && script_flags+=(--all-ways-egpu)
-[[ "$SILENT" == true ]] && script_flags+=(--silent)
 
 # Helper to run a script (already root) with logging and diagnostics
 run_script() {
@@ -88,12 +79,10 @@ run_script() {
     return 2
   fi
 
-  # Print the command only when not silent
-  if [[ "$SILENT" != true ]]; then
-    printf 'Running: %s' "$script_path"
-    for a in "${args[@]}"; do printf ' %q' "$a"; done
-    printf '\n'
-  fi
+  # Always print the command (verbose by default)
+  printf 'Running: %s' "$script_path"
+  for a in "${args[@]}"; do printf ' %q' "$a"; done
+  printf '\n'
 
   # Run the script without xtrace to avoid leading +/++ lines in logs.
   # Stream stdout/stderr directly.

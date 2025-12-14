@@ -3,7 +3,12 @@ set -euo pipefail
 
 # reinstall-rgb-gpus-teaming.sh
 #
-# Usage: sudo ./reinstall-rgb-gpus-teaming.sh [--silent] [--help]
+# Usage: sudo ./reinstall-rgb-gpus-teaming.sh
+#
+# Notes:
+#  - This script removes the GNOME extension directory, the Nautilus script,
+#    and a set of .desktop files under /usr/share/applications.
+#  - It requires root to perform removals; if not run as root it will re-exec with sudo.
 
 EXTENSION_UUID="rgb-gpus-teaming@astromangaming"
 EXTENSION_SYS="/usr/share/gnome-shell/extensions/$EXTENSION_UUID"
@@ -12,33 +17,18 @@ DESKTOP_DIR="/usr/share/applications"
 
 # Defaults
 VERBOSE=true
-SILENT=false
 
 ORIG_ARGS=( "$@" )
 
-usage() {
-  cat <<EOF
-Usage: $(basename "$0") [options]
-
-Options:
-  --silent     Minimize output (errors still printed).
-  -h, --help   Show this help and exit.
-EOF
-}
-
-# Parse args
-while (( "$#" )); do
-  case "$1" in
-    --silent) SILENT=true; shift ;;
-    -h|--help) usage; exit 0 ;;
-    --*) echo "Error: unknown option '$1'"; usage; exit 2 ;;
-    *) echo "Error: unexpected positional argument '$1'"; usage; exit 2 ;;
-  esac
-done
+# Parse args: no options supported; treat any argument as an error
+if (( "$#" )); then
+  printf 'Error: this script does not accept arguments.\n' >&2
+  exit 2
+fi
 
 # Logging helpers
-log() { [[ "$SILENT" != true ]] && printf '[%s] %s\n' "$(date +'%F %T')" "$*"; }
-info() { [[ "$SILENT" == true ]] && return 0; printf '%s\n' "$*"; }
+log() { [[ "$VERBOSE" == true ]] && printf '[%s] %s\n' "$(date +'%F %T')" "$*"; }
+info() { printf '%s\n' "$*"; }
 err() { printf '%s\n' "$*" >&2; }
 
 # Ensure running as root (re-run with sudo if not)
