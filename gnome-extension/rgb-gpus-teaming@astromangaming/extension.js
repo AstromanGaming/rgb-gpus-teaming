@@ -30,6 +30,8 @@ function safeQuote(s) {
   try { return GLib.shell_quote(s); } catch (e) { return `'${s.replace(/'/g, "'\\''")}'`; }
 }
 
+/* Insert the launch item at the end of the menu or sub-menu.
+   Try several common menu containers used by GNOME and extensions. */
 function insertLaunchItem(owner, command) {
   if (!PopupMenu || !PopupMenu.PopupMenuItem) return;
   if (_owners.has(owner)) return;
@@ -44,10 +46,19 @@ function insertLaunchItem(owner, command) {
     } catch (e) { logDebug(`spawn failed: ${e}`); }
   });
 
-  // Add the item at the end of the menu (no index) so it appears below existing entries.
+  // Append to common menu containers (no index => append/end)
+  try { if (owner._appMenu && typeof owner._appMenu.addMenuItem === 'function') owner._appMenu.addMenuItem(item); } catch (e) {}
   try { if (owner.menu && typeof owner.menu.addMenuItem === 'function') owner.menu.addMenuItem(item); } catch (e) {}
-  try { if (owner.addMenuItem && typeof owner.addMenuItem === 'function') owner.addMenuItem(item); } catch (e) {}
   try { if (owner._menu && typeof owner._menu.addMenuItem === 'function') owner._menu.addMenuItem(item); } catch (e) {}
+  try { if (owner.addMenuItem && typeof owner.addMenuItem === 'function') owner.addMenuItem(item); } catch (e) {}
+
+  // Some implementations expose getMenu() or createMenu(); try to append if available
+  try {
+    if (typeof owner.getMenu === 'function') {
+      const m = owner.getMenu();
+      if (m && typeof m.addMenuItem === 'function') m.addMenuItem(item);
+    }
+  } catch (e) {}
 
   _owners.add(owner);
   _items.set(owner, item);
@@ -123,11 +134,13 @@ export function enable() {
   cleanupItems();
   restoreOverrides();
 
-  // Primary injection points (app menu / app grid icons)
+  // Inject into AppMenu.open if available (application submenu)
   if (AppMenuModule?.AppMenu?.prototype?.open) {
     overrideMethod(AppMenuModule.AppMenu, 'open', makeAppMenuOpenWrapper);
     logDebug('Injected into AppMenu.open');
   }
+
+  // Inject into AppIcon methods used by the overview / app grid
   if (AppDisplayModule?.AppIcon) {
     const methods = ['_onButtonPress', '_showContextMenu', 'open_context_menu', 'show_context_menu'];
     for (const m of methods) {
@@ -138,28 +151,47 @@ export function enable() {
     }
   }
 
-  // Additional injection points for dash/dock items (cover common names)
-  // Some GNOME versions expose DashItem or Dash prototypes; try to hook them too.
+  // Additional injection points for dock/dash items (cover common variants)
   const dashCandidates = [
-    AppDisplayModule.Dash,            // sometimes present
-    AppDisplayModule.DashItem,        // sometimes present
-    Main.overview?.dash?.constructor, // fallback: runtime dash constructor
-    Main.dash?.constructor            // older/newer variants
+    AppDisplayModule.Dash,
+    AppDisplayModule.DashItem,
+    Main.overview?.dash?.constructor,
+    Main.dash?.constructor,
+    Main.dash?.Dash
   ];
 
+  const dashMethods = ['_onSecondaryClick', '_showAppMenu', '_onButtonPress', 'open', 'show_context_menu', '_showContextMenu'];
+
   for (const cand of dashCandidates) {
-    if (cand && cand.prototype) {
-      const dashMethods = ['_onButtonPress', '_showContextMenu', 'open_context_menu', 'show_context_menu', '_onSecondaryClick'];
-      for (const m of dashMethods) {
-        if (cand.prototype[m]) {
-          overrideMethod(cand, m, makeAppIconWrapper);
-          logDebug(`Injected into Dash candidate ${cand.name || '<anon>'}.${m}`);
-        }
+    if (!cand || !cand.prototype) continue;
+    for (const m of dashMethods) {
+      if (cand.prototype[m]) {
+        overrideMethod(cand, m, makeAppIconWrapper);
+        logDebug(`Injected into dock candidate ${cand.name || '<anon>'}.${m}`);
       }
     }
   }
 
-  // If nothing was injected, log that fact
+  // Fallback: try to attach to dash delegate signals if present so we can append when menus are created
+  try {
+    if (Main.dash && Main.dash._delegate && Main.dash._delegate.connect) {
+      try {
+        Main.dash._delegate.connect('menu-created', (delegate, owner) => {
+          try {
+            const appInfo = (owner.app || owner._app || owner._delegate?.app)?.app_info;
+            let desktopId = appInfo?.get_id?.();
+            let command = appInfo?.get_executable?.();
+            if ((!command || command.length === 0) && desktopId?.endsWith('.desktop')) {
+              const flatpakId = desktopId.replace(/\.desktop$/, '');
+              if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
+            }
+            if (command) insertLaunchItem(owner, command);
+          } catch (e) { logDebug(`menu-created handler error: ${e}`); }
+        });
+      } catch (e) { /* ignore if signal not present */ }
+    }
+  } catch (e) { /* ignore */ }
+
   if (_orig.length === 0) {
     logDebug('No injection points found; extension will not add menu items.');
   }
