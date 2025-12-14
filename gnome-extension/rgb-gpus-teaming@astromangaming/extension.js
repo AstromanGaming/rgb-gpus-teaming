@@ -1,9 +1,28 @@
 import GLib from 'gi://GLib';
 import { Extension, InjectionManager } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { AppMenu } from 'resource:///org/gnome/shell/ui/appMenu.js';
-import { AppIcon } from 'resource:///org/gnome/shell/ui/appIcon.js';
+// AppIcon may live in different modules across GNOME Shell versions — resolve at runtime
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+
+let AppIcon = null;
+// Try known locations for AppIcon across GNOME Shell versions
+try {
+    AppIcon = imports.ui.appDisplay?.AppIcon || null;
+} catch (e) { /* ignore */ }
+if (!AppIcon) {
+    try {
+        AppIcon = imports.ui.dash?.AppIcon || null;
+    } catch (e) { /* ignore */ }
+}
+if (!AppIcon) {
+    try {
+        AppIcon = imports.ui.appIcon?.AppIcon || null;
+    } catch (e) { /* ignore */ }
+}
+if (!AppIcon) {
+    log('RGB GPUs Teaming: AppIcon symbol not found in known imports; AppIcon-related injection will be skipped.');
+}
 
 export default class RgbGpusTeamingExtension extends Extension {
     enable() {
@@ -106,9 +125,10 @@ export default class RgbGpusTeamingExtension extends Extension {
             };
         });
 
-        // Helper to try overriding AppIcon hook points
+        // Helper to try overriding AppIcon hook points (only if AppIcon resolved)
         const tryOverride = (klass, methodName) => {
-            if (klass && klass.prototype && klass.prototype[methodName]) {
+            if (!klass) return;
+            if (klass.prototype && klass.prototype[methodName]) {
                 this._injectionManager.overrideMethod(klass.prototype, methodName, original => {
                     return function (...args) {
                         const result = original.apply(this, args);
@@ -150,9 +170,14 @@ export default class RgbGpusTeamingExtension extends Extension {
             }
         };
 
-        tryOverride(AppIcon, '_onButtonPress');
-        tryOverride(AppIcon, '_showContextMenu');
-        tryOverride(AppIcon, 'open_context_menu');
+        // Only attempt AppIcon overrides if we resolved AppIcon at runtime
+        if (AppIcon) {
+            tryOverride(AppIcon, '_onButtonPress');
+            tryOverride(AppIcon, '_showContextMenu');
+            tryOverride(AppIcon, 'open_context_menu');
+        } else {
+            log('RGB GPUs Teaming: skipping AppIcon injections because AppIcon symbol was not found.');
+        }
     }
 
     disable() {

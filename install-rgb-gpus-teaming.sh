@@ -130,10 +130,22 @@ fi
 rewrite_exec_cmd() {
   local src_exec="$1"
   local cmd="${src_exec#Exec=}"
+
+  # Replace explicit $SRC_DIR occurrences with DEST_BASE
+  # Use printf+sed to avoid accidental shell expansion
+  cmd="$(printf '%s' "$cmd" | sed -E "s|$(printf '%s' "$SRC_DIR" | sed 's|/|\\/|g')|$DEST_BASE|g")"
+
+  # Replace $HOME and ~ with DEST_BASE
   cmd="${cmd//\$HOME/$DEST_BASE}"
   cmd="${cmd//\~/$DEST_BASE}"
-  cmd="${cmd//$SRC_DIR/$DEST_BASE}"
-  cmd="${cmd//RGB-GPUs-Teaming.OP/$DEST_BASE}"
+
+  # If the command already contains DEST_BASE twice (e.g. /opt//opt or /opt/opt),
+  # collapse duplicate DEST_BASE occurrences and collapse multiple slashes.
+  # First collapse duplicate DEST_BASE substrings:
+  cmd="${cmd//${DEST_BASE}${DEST_BASE}/${DEST_BASE}}"
+  # Then collapse any double slashes (but keep protocol-like patterns if any)
+  cmd="$(printf '%s' "$cmd" | sed -E 's|([^:])/+|\1/|g')"
+
   printf '%s' "$cmd"
 }
 
