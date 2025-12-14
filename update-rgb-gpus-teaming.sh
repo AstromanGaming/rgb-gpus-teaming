@@ -77,7 +77,15 @@ fi
 script_flags=()
 $ALL_WAYS_EGPU && script_flags+=(--all-ways-egpu)
 $SILENT && script_flags+=(--silent)
-$DRY_RUN && script_flags+=(--dry-run)
+$VERBOSE && script_flags+=(--verbose)
+
+# IMPORTANT: the uninstaller defaults to dry-run=true for safety.
+# When the updater is NOT in dry-run mode, explicitly pass --no-dry-run so the uninstaller runs for real.
+if [[ "$DRY_RUN" == true ]]; then
+  script_flags+=(--dry-run)
+else
+  script_flags+=(--no-dry-run)
+fi
 
 # Helper to run a script (already root) with logging and better diagnostics
 run_script() {
