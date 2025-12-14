@@ -1,82 +1,104 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Simple GPU detection helper (English output)
+# Usage: run and choose 1 for glxinfo-based detection or 2 for lspci-based detection.
+
+read_yesno() {
+    # not used interactively here, but kept for future extension
+    local prompt="$1"
+    local ans
+    while true; do
+        read -r -p "$prompt" ans
+        case "$ans" in
+            [yY]|1) return 0 ;;
+            [nN]|'') return 1 ;;
+            *) echo "Please answer y (yes) or n (no)." ;;
+        esac
+    done
+}
 
 echo "Choose detection method:"
-echo "1) glxinfo"
-echo "2) lspci"
-read -p "Enter choice [1/2]: " choice
+echo "1) glxinfo (render offload / DRI_PRIME detection)"
+echo "2) lspci (PCI device list)"
+read -r -p "Enter choice [1/2]: " choice
 
 declare -A seen_gpus
 
 if [[ "$choice" == "1" ]]; then
-    # Check for glxinfo
-    if ! command -v glxinfo &> /dev/null; then
-        echo "Error: glxinfo is not installed. Install it with: sudo apt install mesa-utils"
-        exit 1
-    fi
-    if ! glxinfo >/dev/null 2>&1; then
-        echo "Error: glxinfo is installed but failed to run."
+    if ! command -v glxinfo &>/dev/null; then
+        echo "Error: glxinfo not found. Install with: sudo apt install mesa-utils"
         exit 1
     fi
 
-    echo "Scanning GPUs using glxinfo..."
+    echo "Scanning GPUs using glxinfo (DRI_PRIME 0..15)..."
     echo
 
+    # Try each DRI_PRIME value once; use a timeout to avoid hangs
     for i in $(seq 0 15); do
-        output=$(DRI_PRIME=$i glxinfo 2>/dev/null | grep "Device:")
-        if [[ -n "$output" ]]; then
-            gpu_name=$(echo "$output" | sed 's/.*Device: //')
+        # run glxinfo with a short timeout to avoid long stalls
+        output="$(timeout 2s env DRI_PRIME="$i" glxinfo 2>/dev/null || true)"
+        # find the first "Device:" line (if any)
+        device_line="$(printf '%s\n' "$output" | grep -m1 'Device:' || true)"
+        if [[ -n "$device_line" ]]; then
+            # Extract the device name after "Device:"
+            gpu_name="$(printf '%s' "$device_line" | sed -E 's/.*Device:[[:space:]]*//')"
+            gpu_name="$(printf '%s' "$gpu_name" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+            [[ -z "$gpu_name" ]] && continue
 
             # Skip duplicates
-            if [[ -n "${seen_gpus["$gpu_name"]}" ]]; then
+            if [[ -n "${seen_gpus["$gpu_name"]:-}" ]]; then
                 continue
             fi
             seen_gpus["$gpu_name"]=1
 
-            # Vendor detection
-            if [[ "$gpu_name" == *"AMD"* || "$gpu_name" == *"Radeon"* ]]; then
-                vendor="AMD"
-            elif [[ "$gpu_name" == *"NVIDIA"* ]]; then
-                vendor="NVIDIA"
-            elif [[ "$gpu_name" == *"Intel"* ]]; then
-                vendor="Intel"
-            else
-                vendor="Unknown"
-            fi
+            # Vendor detection (simple heuristics)
+            vendor="Unknown"
+            case "$gpu_name" in
+                *NVIDIA*|*nvidia*) vendor="NVIDIA" ;;
+                *AMD*|*Radeon*|*radeon*) vendor="AMD" ;;
+                *Intel*|*intel*) vendor="Intel" ;;
+            esac
 
-            echo "DRI_PRIME=$i → $vendor GPU: $gpu_name"
-            echo "Suggested launch command:"
+            printf 'DRI_PRIME=%s → %s GPU: %s\n' "$i" "$vendor" "$gpu_name"
+            printf 'Suggested launch command:\n'
             if [[ "$vendor" == "NVIDIA" ]]; then
-                if [[ "$gpu_name" == *"zink"* ]]; then
-                    echo "  # Detected via Zink Vulkan layer — fallback mode"
-                    echo "  Recommended: __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia your_app"
+                if [[ "$gpu_name" == *zink* || "$gpu_name" == *Zink* ]]; then
+                    printf '  # Detected via Zink Vulkan layer — fallback mode\n'
+                    printf '  __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia your_app\n'
                 else
-                    echo "  __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia your_app"
-                    echo "  or: DRI_PRIME=$i your_app"
+                    printf '  __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia your_app\n'
+                    printf '  or: DRI_PRIME=%s your_app\n' "$i"
                 fi
-                echo "  Note: DRI_PRIME is experimental for NVIDIA under Wayland. Prefer Render Offload when possible."
+                printf '  Note: DRI_PRIME may be experimental for NVIDIA under Wayland; prefer Render Offload when possible.\n'
             else
-                echo "  DRI_PRIME=$i your_app"
+                printf '  DRI_PRIME=%s your_app\n' "$i"
             fi
-            echo
+            printf '\n'
         fi
     done
 
 elif [[ "$choice" == "2" ]]; then
-    # Check for lspci
-    if ! command -v lspci &> /dev/null; then
-        echo "Error: lspci is not installed. Install it with: sudo apt install pciutils"
+    if ! command -v lspci &>/dev/null; then
+        echo "Error: lspci not found. Install with: sudo apt install pciutils"
         exit 1
     fi
 
-    echo "Scanning GPUs using lspci..."
+    echo "Scanning GPUs using lspci (VGA and 3D controllers)..."
     echo
 
-    # Only VGA and 3D controllers (skip Audio)
-    lspci | grep -E "VGA|3D"
+    # Print a cleaned list: bus id + device class + device name
+    # Example line: "0000:01:00.0 VGA compatible controller: NVIDIA Corporation Device ..."
+    lspci | grep -E "VGA|3D" | while IFS= read -r line; do
+        # Trim leading/trailing whitespace and collapse multiple spaces
+        clean="$(printf '%s' "$line" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | tr -s ' ')"
+        printf '%s\n' "$clean"
+    done
+
 else
     echo "Invalid choice."
     exit 1
 fi
 
-echo ""
-read -p "Press Enter to exit..."
+echo
+read -r -p "Press Enter to exit..."

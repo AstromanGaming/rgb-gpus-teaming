@@ -1,60 +1,81 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-INSTALL_DIR="$HOME/RGB-GPUs-Teaming.OP"
-DESKTOP_DIR="$HOME/.local/share/applications"
-NAUTILUS_SCRIPTS_DIR="$HOME/.local/share/nautilus/scripts"
-EXTENSION_DIR="$HOME/.local/share/gnome-shell/extensions"
+REAL_USER="${SUDO_USER:-$USER}"
+HOME_DIR="$(getent passwd "$REAL_USER" | cut -d: -f6)"
+INSTALL_DIR="$HOME_DIR/RGB-GPUs-Teaming.OP"
+DESKTOP_DIR="$HOME_DIR/.local/share/applications"
+NAUTILUS_SCRIPTS_DIR="$HOME_DIR/.local/share/nautilus/scripts"
+EXTENSION_DIR="$HOME_DIR/.local/share/gnome-shell/extensions"
 EXTENSION_UUID="rgb-gpus-teaming@astromangaming"
 EXTENSION_SRC="$INSTALL_DIR/gnome-extension/$EXTENSION_UUID"
 EXTENSION_DEST="$EXTENSION_DIR/$EXTENSION_UUID"
 
 ALL_WAYS_EGPU=false
+VERBOSE=false
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [options]
+
+Options:
+  --all-ways-egpu    Install the all-ways-egpu desktop launcher as well.
+  --verbose          Print detailed progress messages.
+  -h, --help         Show this help message and exit.
+
+Notes:
+  - This script copies files into the current user's local directories.
+  - If run as root, files are copied for the original invoking user.
+EOF
+}
 
 for arg in "$@"; do
-    if [[ "$arg" == "--all-ways-egpu" ]]; then
-        ALL_WAYS_EGPU=true
-        break
-    fi
+    case "$arg" in
+        --all-ways-egpu) ALL_WAYS_EGPU=true ;;
+        --verbose) VERBOSE=true ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Warning: unknown argument '$arg' (ignored)" ;;
+    esac
 done
 
-if [[ "$ALL_WAYS_EGPU" == true ]]; then
-    echo "Setting up RGB-GPUs-Teaming (with all-ways-egpu addon) from $INSTALL_DIR..."
-else
-    echo "Setting up RGB-GPUs-Teaming from $INSTALL_DIR..."
-fi
+log() { [[ "$VERBOSE" == true ]] && printf '%s\n' "$*"; }
 
-# Install .desktop launchers
-if compgen -G "$INSTALL_DIR/*.desktop" > /dev/null; then
+echo "Setting up RGB-GPUs-Teaming in $INSTALL_DIR (user: $REAL_USER)"
+log "Options: all-ways-egpu=$ALL_WAYS_EGPU, verbose=$VERBOSE"
+
+mkdir -p "$DESKTOP_DIR" "$NAUTILUS_SCRIPTS_DIR" "$EXTENSION_DIR"
+
+# Desktop files
+if compgen -G "$INSTALL_DIR"/*.desktop > /dev/null; then
     echo "Installing .desktop launchers..."
-    mkdir -p "$DESKTOP_DIR"
-
     if [[ "$ALL_WAYS_EGPU" == true ]]; then
-        cp "$INSTALL_DIR"/*.desktop "$DESKTOP_DIR/"
+        sudo -u "$REAL_USER" cp -f "$INSTALL_DIR"/*.desktop "$DESKTOP_DIR/" || echo "Warning: failed to copy desktop files"
     else
         for file in "$INSTALL_DIR"/*.desktop; do
-            if [[ "$(basename "$file")" != "all-ways-egpu-auto-setup.desktop" ]]; then
-                cp "$file" "$DESKTOP_DIR/"
-            fi
+            [[ "$(basename "$file")" == "all-ways-egpu-auto-setup.desktop" ]] && continue
+            sudo -u "$REAL_USER" cp -f "$file" "$DESKTOP_DIR/" || echo "Warning: failed to copy $file"
         done
     fi
+else
+    echo "No .desktop files found in $INSTALL_DIR"
 fi
 
-# Install Nautilus scripts
+# Nautilus scripts
 if compgen -G "$INSTALL_DIR/nautilus-scripts/*" > /dev/null; then
     echo "Installing Nautilus scripts..."
-    mkdir -p "$NAUTILUS_SCRIPTS_DIR"
-    cp "$INSTALL_DIR/nautilus-scripts/"* "$NAUTILUS_SCRIPTS_DIR/"
-    chmod +x "$NAUTILUS_SCRIPTS_DIR/"*
+    sudo -u "$REAL_USER" cp -f "$INSTALL_DIR/nautilus-scripts/"* "$NAUTILUS_SCRIPTS_DIR/" || echo "Warning: failed to copy nautilus scripts"
+    sudo -u "$REAL_USER" chmod +x "$NAUTILUS_SCRIPTS_DIR/"* || true
+else
+    echo "No Nautilus scripts found in $INSTALL_DIR/nautilus-scripts"
 fi
 
-# Install GNOME extension
+# GNOME extension
 if [[ -d "$EXTENSION_SRC" ]]; then
     echo "Installing GNOME extension: $EXTENSION_UUID"
-    mkdir -p "$EXTENSION_DEST"
-    cp -r "$EXTENSION_SRC/"* "$EXTENSION_DEST/"
-
+    sudo -u "$REAL_USER" mkdir -p "$EXTENSION_DEST"
+    sudo -u "$REAL_USER" cp -r "$EXTENSION_SRC/"* "$EXTENSION_DEST/" || echo "Warning: failed to copy extension files"
     if command -v gnome-extensions &> /dev/null; then
-        gnome-extensions enable "$EXTENSION_UUID"
+        sudo -u "$REAL_USER" gnome-extensions enable "$EXTENSION_UUID" || echo "Warning: failed to enable extension"
         echo "GNOME extension '$EXTENSION_UUID' enabled."
     else
         echo "Warning: 'gnome-extensions' CLI not found. Extension copied but not enabled."
