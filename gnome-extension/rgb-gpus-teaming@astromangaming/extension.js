@@ -16,16 +16,20 @@ const EXCLUDED = new Set([
 let _orig = [];
 let _items = new Map();
 let _owners = new Set();
+let _dashSignals = [];
 
+/* Logging helper */
 function logDebug(msg) {
   try { global.log(`[${EXTENSION_UUID}] ${msg}`); } catch (e) {}
 }
 
+/* Check script exists and is executable */
 function scriptOk(path) {
   try { return GLib.file_test(path, GLib.FileTest.EXISTS | GLib.FileTest.IS_EXECUTABLE); }
   catch (e) { return false; }
 }
 
+/* Shell-quote helper */
 function safeQuote(s) {
   try { return GLib.shell_quote(s); } catch (e) { return `'${s.replace(/'/g, "'\\''")}'`; }
 }
@@ -34,6 +38,7 @@ function safeQuote(s) {
    Try several common menu containers used by GNOME and extensions. */
 function insertLaunchItem(owner, command) {
   if (!PopupMenu || !PopupMenu.PopupMenuItem) return;
+  if (!owner) return;
   if (_owners.has(owner)) return;
   if (!scriptOk(LAUNCHER)) return;
 
@@ -46,7 +51,7 @@ function insertLaunchItem(owner, command) {
     } catch (e) { logDebug(`spawn failed: ${e}`); }
   });
 
-  // Append to common menu containers (no index => append/end)
+  // Try common containers (append/end)
   try { if (owner._appMenu && typeof owner._appMenu.addMenuItem === 'function') owner._appMenu.addMenuItem(item); } catch (e) {}
   try { if (owner.menu && typeof owner.menu.addMenuItem === 'function') owner.menu.addMenuItem(item); } catch (e) {}
   try { if (owner._menu && typeof owner._menu.addMenuItem === 'function') owner._menu.addMenuItem(item); } catch (e) {}
@@ -64,6 +69,7 @@ function insertLaunchItem(owner, command) {
   _items.set(owner, item);
 }
 
+/* Generic override helper */
 function overrideMethod(obj, methodName, wrapperFactory) {
   if (!obj?.prototype?.[methodName]) return false;
   const original = obj.prototype[methodName];
@@ -73,6 +79,7 @@ function overrideMethod(obj, methodName, wrapperFactory) {
   return true;
 }
 
+/* Restore overrides */
 function restoreOverrides() {
   for (const e of _orig) {
     try { e.object[e.name] = e.original; } catch (ex) {}
@@ -80,14 +87,21 @@ function restoreOverrides() {
   _orig = [];
 }
 
+/* Destroy created menu items and clear bookkeeping */
 function cleanupItems() {
   for (const item of _items.values()) {
     try { item?.destroy?.(); } catch (e) {}
   }
   _items.clear();
   _owners.clear();
+  // disconnect dash signals
+  for (const s of _dashSignals) {
+    try { s.obj.disconnect(s.id); } catch (e) {}
+  }
+  _dashSignals = [];
 }
 
+/* AppMenu wrapper (application submenu) */
 function makeAppMenuOpenWrapper(original) {
   return function (...args) {
     try {
@@ -107,6 +121,7 @@ function makeAppMenuOpenWrapper(original) {
   };
 }
 
+/* AppIcon / Dash item wrapper (overview/app-grid and dock items) */
 function makeAppIconWrapper(original) {
   return function (...args) {
     const result = original.apply(this, args);
@@ -127,6 +142,102 @@ function makeAppIconWrapper(original) {
   };
 }
 
+/* Try to attach to existing dash items (so already-visible icons get the menu) */
+function attachToExistingDashItems() {
+  try {
+    const candidates = [];
+
+    // Common places where dash items are stored across GNOME versions / extensions
+    if (Main.dash && Array.isArray(Main.dash._items)) candidates.push(...Main.dash._items);
+    if (Main.overview?.dash && Array.isArray(Main.overview.dash._items)) candidates.push(...Main.overview.dash._items);
+
+    // Dash-to-Dock / Dash-to-Panel / Ubuntu Dock sometimes expose _delegate._items or _delegate._actors
+    if (Main.dash && Main.dash._delegate) {
+      try {
+        const d = Main.dash._delegate;
+        if (Array.isArray(d._items)) candidates.push(...d._items);
+        if (Array.isArray(d._actors)) candidates.push(...d._actors);
+      } catch (e) {}
+    }
+
+    // Ubuntu Dock specifics: some versions store launchers in Main.dash._launcher or Main.dash._items
+    if (Main.dash && Main.dash._launcher) {
+      try {
+        if (Array.isArray(Main.dash._launcher)) candidates.push(...Main.dash._launcher);
+      } catch (e) {}
+    }
+
+    // Deduplicate and attempt to insert when possible
+    const seen = new Set();
+    for (const owner of candidates) {
+      if (!owner || seen.has(owner)) continue;
+      seen.add(owner);
+
+      try {
+        const appInfo = (owner.app || owner._app || owner._delegate?.app)?.app_info;
+        let desktopId = appInfo?.get_id?.();
+        let command = appInfo?.get_executable?.();
+        if ((!command || command.length === 0) && desktopId?.endsWith('.desktop')) {
+          const flatpakId = desktopId.replace(/\.desktop$/, '');
+          if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
+        }
+        if (command) {
+          // If the menu already exists, insert immediately; otherwise rely on delegate signals
+          insertLaunchItem(owner, command);
+        }
+      } catch (e) {
+        // ignore per-item errors
+      }
+    }
+  } catch (e) {
+    logDebug(`attachToExistingDashItems error: ${e}`);
+  }
+}
+
+/* Connect to dash delegate 'menu-created' or similar signals to append when menus are created */
+function connectDashDelegateSignals() {
+  try {
+    // Many dash implementations expose a delegate with a 'menu-created' signal
+    const delegate = Main.dash?._delegate || Main.overview?.dash?._delegate;
+    if (delegate && typeof delegate.connect === 'function') {
+      const id = delegate.connect('menu-created', (d, owner) => {
+        try {
+          const appInfo = (owner.app || owner._app || owner._delegate?.app)?.app_info;
+          let desktopId = appInfo?.get_id?.();
+          let command = appInfo?.get_executable?.();
+          if ((!command || command.length === 0) && desktopId?.endsWith('.desktop')) {
+            const flatpakId = desktopId.replace(/\.desktop$/, '');
+            if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
+          }
+          if (command) insertLaunchItem(owner, command);
+        } catch (e) { logDebug(`delegate menu-created handler error: ${e}`); }
+      });
+      _dashSignals.push({ obj: delegate, id });
+    }
+
+    // Ubuntu Dock (integrated) sometimes emits 'menu-created' on Main.dash itself
+    if (Main.dash && typeof Main.dash.connect === 'function') {
+      try {
+        const id2 = Main.dash.connect('menu-created', (d, owner) => {
+          try {
+            const appInfo = (owner.app || owner._app || owner._delegate?.app)?.app_info;
+            let desktopId = appInfo?.get_id?.();
+            let command = appInfo?.get_executable?.();
+            if ((!command || command.length === 0) && desktopId?.endsWith('.desktop')) {
+              const flatpakId = desktopId.replace(/\.desktop$/, '');
+              if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
+            }
+            if (command) insertLaunchItem(owner, command);
+          } catch (e) { logDebug(`Main.dash menu-created handler error: ${e}`); }
+        });
+        _dashSignals.push({ obj: Main.dash, id: id2 });
+      } catch (e) {}
+    }
+  } catch (e) {
+    logDebug(`connectDashDelegateSignals error: ${e}`);
+  }
+}
+
 /* Functional API expected by modern GNOME loaders */
 export function init() { /* no-op */ }
 
@@ -134,13 +245,13 @@ export function enable() {
   cleanupItems();
   restoreOverrides();
 
-  // Inject into AppMenu.open if available (application submenu)
+  // AppMenu injection (application submenu)
   if (AppMenuModule?.AppMenu?.prototype?.open) {
     overrideMethod(AppMenuModule.AppMenu, 'open', makeAppMenuOpenWrapper);
     logDebug('Injected into AppMenu.open');
   }
 
-  // Inject into AppIcon methods used by the overview / app grid
+  // AppIcon injection (overview / app grid)
   if (AppDisplayModule?.AppIcon) {
     const methods = ['_onButtonPress', '_showContextMenu', 'open_context_menu', 'show_context_menu'];
     for (const m of methods) {
@@ -151,7 +262,7 @@ export function enable() {
     }
   }
 
-  // Additional injection points for dock/dash items (cover common variants)
+  // Dash / Dock injection: try common prototypes and methods
   const dashCandidates = [
     AppDisplayModule.Dash,
     AppDisplayModule.DashItem,
@@ -172,27 +283,13 @@ export function enable() {
     }
   }
 
-  // Fallback: try to attach to dash delegate signals if present so we can append when menus are created
-  try {
-    if (Main.dash && Main.dash._delegate && Main.dash._delegate.connect) {
-      try {
-        Main.dash._delegate.connect('menu-created', (delegate, owner) => {
-          try {
-            const appInfo = (owner.app || owner._app || owner._delegate?.app)?.app_info;
-            let desktopId = appInfo?.get_id?.();
-            let command = appInfo?.get_executable?.();
-            if ((!command || command.length === 0) && desktopId?.endsWith('.desktop')) {
-              const flatpakId = desktopId.replace(/\.desktop$/, '');
-              if (GLib.find_program_in_path('flatpak')) command = `flatpak run ${flatpakId}`;
-            }
-            if (command) insertLaunchItem(owner, command);
-          } catch (e) { logDebug(`menu-created handler error: ${e}`); }
-        });
-      } catch (e) { /* ignore if signal not present */ }
-    }
-  } catch (e) { /* ignore */ }
+  // Attach to existing dash items so visible icons get the menu immediately
+  attachToExistingDashItems();
 
-  if (_orig.length === 0) {
+  // Connect delegate signals (menu-created) as a robust fallback (covers Ubuntu Dock)
+  connectDashDelegateSignals();
+
+  if (_orig.length === 0 && _dashSignals.length === 0) {
     logDebug('No injection points found; extension will not add menu items.');
   }
 }
