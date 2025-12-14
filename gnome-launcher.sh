@@ -1,16 +1,40 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # gnome-launcher.sh
-# Launch a command or executable with GPU offload, using system-wide config under /opt.
+# Launch a command or executable with GPU offload, using per-user config when available.
+# Script lives in /opt and is intended to be executable by normal users.
 
 INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
-MEM_FILE="$INSTALL_BASE/config/gpu_launcher_gnome_config"
-REAL_USER="${SUDO_USER:-$USER}"
-HOME_DIR="$(getent passwd "$REAL_USER" | cut -d: -f6 || true)"
+SYSTEM_MEM_FILE="$INSTALL_BASE/config/gpu_launcher_gnome_config"
 
-# Load user memory file if present (fall back to nothing)
-[[ -f "$MEM_FILE" ]] && source "$MEM_FILE"
+# Determine the target user whose config we should read:
+# - If invoked via sudo, SUDO_USER is the real user; otherwise use current user.
+TARGET_USER="${SUDO_USER:-$USER}"
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6 || true)"
+
+# Per-user config path (XDG_CONFIG_HOME if set for that user, else ~/.config)
+USER_CONFIG_DIR=""
+USER_MEM_FILE=""
+
+if [[ -n "$TARGET_HOME" ]]; then
+  # If the target user has XDG_CONFIG_HOME set in their environment, we can't reliably read it here.
+  # Use the conventional path under their home.
+  USER_CONFIG_DIR="$TARGET_HOME/.config/rgb-gpus-teaming"
+  USER_MEM_FILE="$USER_CONFIG_DIR/gpu_launcher_gnome_config"
+fi
+
+# Load configuration: prefer per-user config, fall back to system config
+GPU_MODE=""
+DRI_PRIME=""
+
+if [[ -n "$USER_MEM_FILE" && -f "$USER_MEM_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$USER_MEM_FILE"
+elif [[ -f "$SYSTEM_MEM_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$SYSTEM_MEM_FILE"
+fi
 
 input="${1:-}"
 if [[ -z "$input" ]]; then
@@ -24,7 +48,7 @@ if [[ -f "$input" ]]; then
 fi
 
 get_common_terminal() {
-  for term in ptyxis gnome-terminal xfce4-terminal konsole tilix x-terminal-emulator alacritty kitty urxvt terminator xterm; do
+  for term in gnome-terminal xfce4-terminal konsole tilix x-terminal-emulator alacritty kitty urxvt terminator xterm; do
     if type -P "$term" >/dev/null 2>&1; then
       echo "$term"
       return
@@ -33,13 +57,18 @@ get_common_terminal() {
   echo "xterm"
 }
 
+# Run a command string with the appropriate GPU environment
 launch_with_gpu() {
   local cmd="$1"
-  echo "Running: $cmd with GPU mode: ${GPU_MODE:-default}"
-  if [[ "${GPU_MODE:-}" == "NVIDIA" ]]; then
-    __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia eval "$cmd"
+
+  # Choose env based on GPU_MODE
+  if [[ "${GPU_MODE:-}" == "NVIDIA_RENDER_OFFLOAD" || "${GPU_MODE:-}" == "NVIDIA" ]]; then
+    # Render offload env
+    env __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia bash -c "$cmd"
   else
-    DRI_PRIME="${DRI_PRIME:-1}" eval "$cmd"
+    # DRI_PRIME mode (default to 1 if not set)
+    local dpi="${DRI_PRIME:-1}"
+    env DRI_PRIME="$dpi" bash -c "$cmd"
   fi
 }
 
@@ -48,9 +77,6 @@ launch_in_terminal() {
   local executable="$2"
 
   case "$terminal" in
-    ptyxis)
-      launch_with_gpu "$terminal --execute \"$executable\""
-      ;;
     gnome-terminal|xfce4-terminal|x-terminal-emulator|konsole|tilix|kitty)
       launch_with_gpu "$terminal -- bash -c '$executable; exec bash'"
       ;;
@@ -58,7 +84,8 @@ launch_in_terminal() {
       launch_with_gpu "$terminal -e \"$executable\""
       ;;
     *)
-      echo "Unsupported terminal: $terminal"
+      # Fallback: try to run directly
+      launch_with_gpu "$executable"
       ;;
   esac
 }
@@ -75,6 +102,7 @@ fi
 first_word="${input%% *}"
 if type -P "$first_word" >/dev/null 2>&1; then
   echo "Launching command: $input"
+  # Run in background so launcher returns quickly
   launch_with_gpu "$input" &
   exit 0
 fi

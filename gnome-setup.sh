@@ -1,45 +1,53 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# system-gpu-launcher-config.sh
-# Interactive helper to choose GPU launch mode and persist it for system installs under /opt.
-# Writes config to: /opt/RGB-GPUs-Teaming.OP/config/gpu_launcher_gnome_config
-# Intended to be run as root (will re-run with sudo if invoked without).
+# gnome-setup.sh
+# Interactive helper to choose GPU launch mode and persist it per-user.
+# Writes config to: $USER_HOME/.config/rgb-gpus-teaming/gpu_launcher_gnome_config
+# If run under sudo, the config is written for the real user (SUDO_USER).
 
 INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
-CONFIG_DIR="$INSTALL_BASE/config"
-MEM_FILE="$CONFIG_DIR/gpu_launcher_gnome_config"
+SYSTEM_CONFIG_DIR="$INSTALL_BASE/config"
+SYSTEM_MEM_FILE="$SYSTEM_CONFIG_DIR/gpu_launcher_gnome_config"
 
-# Determine real (non-sudo) user and home
-REAL_USER="${SUDO_USER:-$USER}"
-HOME_DIR="$(getent passwd "$REAL_USER" | cut -d: -f6 || true)"
+# Determine target user and home (prefer SUDO_USER when run with sudo)
+TARGET_USER="${SUDO_USER:-$USER}"
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6 || true)"
+
+# Per-user config location
+USER_CONFIG_DIR="${XDG_CONFIG_HOME:-$TARGET_HOME/.config}/rgb-gpus-teaming"
+USER_MEM_FILE="$USER_CONFIG_DIR/gpu_launcher_gnome_config"
 
 # Safe read helpers
 read_line() { read -r -p "$1" __tmp; printf '%s' "$__tmp"; }
 read_choice() { read -r -p "$1" __tmp; printf '%s' "${__tmp:-}"; }
 
-# Ensure running as root for system-wide writes
+# If not run as root, continue as the invoking user (we will write to their config)
 if [[ "$(id -u)" -ne 0 ]]; then
-    echo "This script requires root. Re-running with sudo..."
-    exec sudo "$0" "$@"
+    echo "Running as user: $USER (will write per-user config to $USER_MEM_FILE)"
+else
+    # Running as root: ensure TARGET_USER is valid
+    if [[ -z "$TARGET_USER" || -z "$TARGET_HOME" ]]; then
+        printf '%s\n' "Error: could not determine target user or home directory." >&2
+        exit 1
+    fi
+    echo "Running as root; will write per-user config for: $TARGET_USER -> $USER_MEM_FILE"
 fi
 
-# Basic checks
-if [[ -z "$REAL_USER" || -z "$HOME_DIR" ]]; then
-    printf '%s\n' "Error: could not determine real user or home directory." >&2
-    exit 1
+# Ensure per-user config directory exists and has correct ownership
+mkdir -p "$USER_CONFIG_DIR"
+chmod 0755 "$USER_CONFIG_DIR"
+# If running as root, set ownership to target user
+if [[ "$(id -u)" -eq 0 ]]; then
+    chown "$TARGET_USER":"$TARGET_USER" "$USER_CONFIG_DIR" 2>/dev/null || true
 fi
 
-# Ensure install/config directories exist
-mkdir -p "$CONFIG_DIR"
-chmod 0755 "$CONFIG_DIR"
-
-# Load previous configuration if present
+# Load previous configuration if present (from per-user file)
 GPU_MODE=""
 DRI_PRIME=""
-if [[ -f "$MEM_FILE" ]]; then
+if [[ -f "$USER_MEM_FILE" ]]; then
     # shellcheck disable=SC1090
-    source "$MEM_FILE"
+    source "$USER_MEM_FILE"
     printf 'Last mode used: %s\n' "${GPU_MODE:-<none>}"
     printf 'Last DRI_PRIME index: %s\n' "${DRI_PRIME:-<none>}"
 fi
@@ -64,8 +72,6 @@ case "$mode" in
             exit 1
         fi
         DRI_PRIME="$dri_value"
-        unset __NV_PRIME_RENDER_OFFLOAD
-        unset __GLX_VENDOR_LIBRARY_NAME
         GPU_MODE="DRI_PRIME"
         printf 'DRI_PRIME mode enabled with DRI_PRIME=%s\n' "$DRI_PRIME"
 
@@ -73,21 +79,20 @@ case "$mode" in
             echo "Warning: DRI_PRIME may not work reliably with NVIDIA under Wayland."
         fi
 
-        # Save config (system-wide)
+        # Save per-user config
         {
             printf 'GPU_MODE="%s"\n' "$GPU_MODE"
             printf 'DRI_PRIME="%s"\n' "$DRI_PRIME"
-        } > "$MEM_FILE"
+        } > "$USER_MEM_FILE"
         ;;
     2)
-        # For render offload we persist the mode; environment variables are set at launch time by launcher
         GPU_MODE="NVIDIA_RENDER_OFFLOAD"
         printf 'NVIDIA Render Offload mode enabled\n'
 
         {
             printf 'GPU_MODE="%s"\n' "$GPU_MODE"
             printf 'DRI_PRIME=""\n'
-        } > "$MEM_FILE"
+        } > "$USER_MEM_FILE"
         ;;
     *)
         echo "Invalid choice. Please enter 1 or 2."
@@ -95,10 +100,26 @@ case "$mode" in
         ;;
 esac
 
-# Ensure the saved file is owned by the real user so they can read/edit it
-if [[ -n "$REAL_USER" && "$REAL_USER" != "root" ]]; then
-    chown "$REAL_USER":"$REAL_USER" "$MEM_FILE" 2>/dev/null || true
+# Ensure the saved file is owned by the target user so they can read/edit it
+if [[ -n "$TARGET_USER" && "$(id -u)" -eq 0 ]]; then
+    chown "$TARGET_USER":"$TARGET_USER" "$USER_MEM_FILE" 2>/dev/null || true
 fi
-chmod 0644 "$MEM_FILE" 2>/dev/null || true
+chmod 0644 "$USER_MEM_FILE" 2>/dev/null || true
 
-printf 'Configuration saved to: %s\n' "$MEM_FILE"
+printf 'Configuration saved to: %s\n' "$USER_MEM_FILE"
+
+# Optionally also write a system-wide default if none exists (non-destructive)
+if [[ ! -f "$SYSTEM_MEM_FILE" ]]; then
+    mkdir -p "$SYSTEM_CONFIG_DIR"
+    chmod 0755 "$SYSTEM_CONFIG_DIR"
+    cp -n "$USER_MEM_FILE" "$SYSTEM_MEM_FILE" 2>/dev/null || true
+    chmod 0644 "$SYSTEM_MEM_FILE" 2>/dev/null || true
+    log_msg="(copied to system default)"
+else
+    log_msg=""
+fi
+
+if [[ -n "$log_msg" ]]; then
+    printf 'System default created at: %s %s\n' "$SYSTEM_MEM_FILE" "$log_msg"
+fi
+
