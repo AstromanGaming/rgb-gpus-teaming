@@ -64,7 +64,7 @@ run_rm() {
     log "[DRY-RUN] Would remove: $path"
   else
     if [[ -e "$path" ]]; then
-      rm -rf "$path"
+      rm -rf -- "$path"
       log "Removed: $path"
     else
       log "Not found (skipping): $path"
@@ -72,7 +72,6 @@ run_rm() {
   fi
 }
 
-# Remove contents of a directory but keep the directory itself
 run_rm_contents_keep_dir() {
   local dir="$1"
   if [[ "$DRY_RUN" == true ]]; then
@@ -82,7 +81,7 @@ run_rm_contents_keep_dir() {
   fi
   if [[ -d "$dir" ]]; then
     # remove everything inside dir but not dir itself
-    find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+    find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
     log "Removed contents of: $dir (directory preserved)"
   else
     log "Directory not found (skipping): $dir"
@@ -105,7 +104,6 @@ if [[ -f "$MANIFEST" ]]; then
         run_rm "$item"
       else
         log "Preserving top-level directory: $OPT_BASE (use --remove-root to remove it)"
-        # if we want to remove contents but keep dir, do that
         run_rm_contents_keep_dir "$OPT_BASE"
       fi
     else
@@ -120,31 +118,47 @@ else
     if [[ "$REMOVE_ROOT" == true ]]; then
       run_rm "$OPT_BASE"
     else
-      # Remove common installed subpaths but keep config if present
-      # Remove everything except 'config' directory (if exists) and preserve OPT_BASE itself
-      # If you prefer to preserve config and other specific dirs, adjust the exclusions below.
-      log "Preserving $OPT_BASE directory; removing installed files inside it (config preserved if present)."
-      # Remove files and dirs except 'config'
+      # Build canonical preserve list
+      preserve_list=()
+      if [[ -d "$OPT_BASE/config" ]]; then
+        preserve_list+=( "$(realpath -s "$OPT_BASE/config")" )
+      fi
+      # Add any other preserve paths here, e.g.:
+      # [[ -d "$OPT_BASE/data" ]] && preserve_list+=( "$(realpath -s "$OPT_BASE/data")" )
+
+      log "Preserve canonical paths: ${preserve_list[*]:-<none>}"
+
       if [[ "$DRY_RUN" == true ]]; then
-        echo "[DRY-RUN] Would remove files under $OPT_BASE except $OPT_BASE/config"
+        echo "[DRY-RUN] Would remove files under $OPT_BASE except preserved paths: ${preserve_list[*]:-<none>}"
       else
-        shopt -s dotglob
+        shopt -s dotglob nullglob
         for entry in "$OPT_BASE"/* "$OPT_BASE"/.[!.]* "$OPT_BASE"/..?*; do
-          # skip if entry doesn't exist (globs may expand to themselves)
           [[ -e "$entry" ]] || continue
-          # preserve config directory
-          if [[ "$(realpath -s "$entry")" == "$(realpath -s "$OPT_BASE/config")" ]]; then
-            log "Preserving config directory: $entry"
+          entry_real="$(realpath -s "$entry" 2>/dev/null || true)"
+
+          # Skip top-level directory itself
+          if [[ "$entry_real" == "$(realpath -s "$OPT_BASE")" ]]; then
+            log "Skipping top-level directory entry: $entry"
             continue
           fi
-          # do not remove the top-level directory itself
-          if [[ "$entry" == "$OPT_BASE" ]]; then
+
+          # Skip preserved canonical paths
+          skip=false
+          for p in "${preserve_list[@]}"; do
+            if [[ -n "$p" && "$entry_real" == "$p" ]]; then
+              log "Preserving: $entry (canonical: $entry_real)"
+              skip=true
+              break
+            fi
+          done
+          if [[ "$skip" == true ]]; then
             continue
           fi
-          rm -rf "$entry"
+
+          rm -rf -- "$entry"
           log "Removed: $entry"
         done
-        shopt -u dotglob
+        shopt -u dotglob nullglob
       fi
     fi
   else
@@ -194,7 +208,6 @@ else
   if [[ -f "$NAUTILUS_SCRIPT" ]]; then
     run_rm "$NAUTILUS_SCRIPT"
   else
-    # try to find any nautilus scripts that mention the project path
     while IFS= read -r -d $'\0' ns; do
       run_rm "$ns"
     done < <(grep -IlZ --binary-files=without-match -E '/opt/RGB-GPUs-Teaming.OP' /usr/share/nautilus/scripts/* 2>/dev/null || true)
@@ -222,7 +235,11 @@ if [[ "$SILENT" != true ]]; then
     echo "Dry-run mode: no files were actually removed."
   else
     echo "System-wide uninstall complete."
-    echo "Note: the top-level directory $OPT_BASE was preserved by default."
+    if [[ "$REMOVE_ROOT" == true ]]; then
+      echo "Top-level directory $OPT_BASE was removed."
+    else
+      echo "Note: the top-level directory $OPT_BASE was preserved by default."
+    fi
     echo "If desktop entries still appear, run 'update-desktop-database' and/or log out and back in."
   fi
 fi
