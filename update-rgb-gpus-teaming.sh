@@ -13,7 +13,7 @@ GIT_DIR="$INSTALL_BASE/.git"
 
 ALL_WAYS_EGPU=false
 SILENT=false
-VERBOSE=true
+VERBOSE=true   # verbose enabled by default
 
 # Save original args so we can re-exec with sudo preserving them
 ORIG_ARGS=( "$@" )
@@ -44,15 +44,15 @@ if [[ "$SILENT" == true ]]; then
   VERBOSE=false
 fi
 
-log() { [[ "$VERBOSE" == true ]] && printf '[%s] %s\n' "$(date +'%F %T')" "$*"; }
+log() { [[ "$VERBOSE" == true && "$SILENT" != true ]] && printf '[%s] %s\n' "$(date +'%F %T')" "$*"; }
 info() { [[ "$SILENT" == true ]] && return 0; printf '%s\n' "$*"; }
 err() { printf '%s\n' "$*" >&2; }
 
-printf 'Update/reinstall for system install at %s\n' "$INSTALL_BASE"
-log "Options: all-ways-egpu=$ALL_WAYS_EGPU, silent=$SILENT, verbose=$VERBOSE"
+info "Update/reinstall for system install at $INSTALL_BASE"
+log "Options: all-ways-egpu=$ALL_WAYS_EGPU, silent=$SILENT"
 
 if [[ ! -d "$INSTALL_BASE" ]]; then
-  printf 'Error: system install directory not found: %s\n' "$INSTALL_BASE" >&2
+  err "Error: system install directory not found: $INSTALL_BASE"
   exit 1
 fi
 
@@ -66,7 +66,7 @@ fi
 if command -v git >/dev/null 2>&1 && [[ -d "$GIT_DIR" ]]; then
   info "Pulling latest changes from Git in $INSTALL_BASE..."
   if ! git -C "$INSTALL_BASE" pull --ff-only; then
-    printf 'Error: git pull failed. Aborting.\n' >&2
+    err "Error: git pull failed. Aborting."
     exit 1
   fi
 else
@@ -84,21 +84,25 @@ run_script() {
   local args=( "$@" )
 
   if [[ ! -f "$script_path" ]]; then
-    printf 'Warning: script not found: %s\n' "$script_path" >&2
+    err "Warning: script not found: $script_path"
     return 2
   fi
 
-  printf 'Running: %s' "$script_path"
-  for a in "${args[@]}"; do printf ' %q' "$a"; done
-  printf '\n'
+  # Print the command only when not silent
+  if [[ "$SILENT" != true ]]; then
+    printf 'Running: %s' "$script_path"
+    for a in "${args[@]}"; do printf ' %q' "$a"; done
+    printf '\n'
+  fi
 
-  # Run with bash -x to aid debugging; stream stdout+stderr to the console
-  if bash -x "$script_path" "${args[@]}"; then
+  # Run the script without xtrace to avoid leading +/++ lines in logs.
+  # Stream stdout/stderr directly.
+  if bash "$script_path" "${args[@]}"; then
     log "Script succeeded: $script_path"
     return 0
   else
     local rc=$?
-    printf 'Script failed with exit code %d.\n' "$rc" >&2
+    err "Script failed with exit code $rc."
     return $rc
   fi
 }
@@ -107,7 +111,7 @@ run_script() {
 if [[ -f "$UNINSTALL_SCRIPT" ]]; then
   info 'Running reinstall script (replaces uninstall)...'
   if ! run_script "$UNINSTALL_SCRIPT" "${script_flags[@]}"; then
-    printf 'Warning: reinstall script returned non-zero; continuing to reinstall.\n' >&2
+    err 'Warning: reinstall script returned non-zero; continuing to reinstall.'
   fi
 else
   info "Warning: Reinstall script not found: $UNINSTALL_SCRIPT"
@@ -117,12 +121,12 @@ fi
 if [[ -f "$INSTALL_SCRIPT" ]]; then
   info 'Running install script...'
   if ! run_script "$INSTALL_SCRIPT" "${script_flags[@]}"; then
-    printf 'Error: install script failed.\n' >&2
+    err 'Error: install script failed.'
     exit 1
   fi
 else
-  printf 'Error: Install script not found: %s\n' "$INSTALL_SCRIPT" >&2
+  err "Error: Install script not found: $INSTALL_SCRIPT"
   exit 1
 fi
 
-printf 'Update and reinstall complete for %s.\n' "$INSTALL_BASE"
+info "Update and reinstall complete for $INSTALL_BASE"
