@@ -8,8 +8,6 @@ set -euo pipefail
 #
 # Notes:
 #  - This script updates a system install under /opt/RGB-GPUs-Teaming.OP.
-#  - Child scripts are executed with INSTALL_BASE as the working directory
-#    to avoid accidental copying of the caller's current directory (e.g., $HOME).
 
 INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
 INSTALL_SCRIPT="$INSTALL_BASE/install-rgb-gpus-teaming.sh"
