@@ -32,9 +32,6 @@ Usage: $(basename "$0") [options]
 Options:
   --confirm                Actually perform removals.
   -h, --help               Show this help and exit.
-
-Notes:
-  - By default the script only simulates actions. Pass --confirm to run for real.
 EOF
 }
 
