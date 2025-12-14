@@ -2,21 +2,23 @@
 set -euo pipefail
 
 # uninstall-rgb-gpus-teaming.sh
-# System-wide uninstaller that removes installed artifacts but preserves the main /opt directory by default.
+# Conservative system-wide uninstaller for RGB-GPUs-Teaming.OP
 #
 # Usage:
-#   sudo ./uninstall-rgb-gpus-teaming.sh [--silent] [--dry-run] [--verbose] [--remove-root] [--help]
+#   sudo ./uninstall-rgb-gpus-teaming.sh [--silent] [--remove-root] [--dry-run] [--verbose] [--help]
 #
-# Notes:
-# - Prefers /opt/RGB-GPUs-Teaming.OP/install-manifest.txt when present.
-# - Otherwise finds .desktop files that reference /opt/RGB-GPUs-Teaming.OP in Exec or TryExec.
-# - By default the script will NOT remove the OPT_BASE directory itself; use --remove-root to remove it.
+# Behavior:
+# - If install-manifest.txt exists, remove items listed there (reverse order).
+# - Otherwise remove only a safe, explicit list of known installed artifacts.
+# - By default the top-level /opt/RGB-GPUs-Teaming.OP directory is preserved.
+# - Use --remove-root to remove the top-level directory (dangerous).
 
 OPT_BASE="/opt/RGB-GPUs-Teaming.OP"
 MANIFEST="$OPT_BASE/install-manifest.txt"
 EXTENSION_UUID="rgb-gpus-teaming@astromangaming"
 EXTENSION_SYS="/usr/share/gnome-shell/extensions/$EXTENSION_UUID"
 NAUTILUS_SCRIPT="/usr/share/nautilus/scripts/Launch with RGB GPUs Teaming"
+DESKTOP_DIR="/usr/share/applications"
 
 DRY_RUN=false
 VERBOSE=false
@@ -29,13 +31,10 @@ Usage: $(basename "$0") [options]
 
 Options:
   --silent        Suppress final informational messages.
+  --remove-root   Also remove the OPT_BASE directory itself (use with caution).
   --dry-run       Show actions without making changes.
   --verbose       Print detailed progress messages.
-  --remove-root   Also remove the OPT_BASE directory itself (use with caution).
   -h, --help      Show this help message and exit.
-
-This script performs a system-wide uninstall of RGB-GPUs-Teaming installed under $OPT_BASE.
-By default the top-level directory $OPT_BASE is preserved; use --remove-root to remove it.
 EOF
 }
 
@@ -51,6 +50,7 @@ while (( "$#" )); do
 done
 
 log() { [[ "$VERBOSE" == true ]] && printf '%s\n' "$*"; }
+err() { printf 'Error: %s\n' "$*' >&2; }
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "This script must be run as root. Re-run with sudo." >&2
@@ -72,30 +72,13 @@ run_rm() {
   fi
 }
 
-run_rm_contents_keep_dir() {
-  local dir="$1"
-  if [[ "$DRY_RUN" == true ]]; then
-    echo "[DRY-RUN] Would remove contents of: $dir (preserve directory)"
-    log "[DRY-RUN] Would remove contents of: $dir (preserve directory)"
-    return
-  fi
-  if [[ -d "$dir" ]]; then
-    # remove everything inside dir but not dir itself
-    find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-    log "Removed contents of: $dir (directory preserved)"
-  else
-    log "Directory not found (skipping): $dir"
-  fi
-}
-
-echo "Starting system-wide uninstall of RGB-GPUs-Teaming from $OPT_BASE"
+echo "Starting conservative uninstall of RGB-GPUs-Teaming from $OPT_BASE"
 log "Options: dry-run=$DRY_RUN verbose=$VERBOSE remove-root=$REMOVE_ROOT"
 
 # If manifest exists, use it (most reliable)
 if [[ -f "$MANIFEST" ]]; then
   log "Found manifest: $MANIFEST"
   mapfile -t items < "$MANIFEST"
-  # iterate in reverse order (best-effort cleanup)
   for ((i=${#items[@]}-1; i>=0; i--)); do
     item="${items[i]}"
     # Protect OPT_BASE unless --remove-root specified
@@ -104,116 +87,64 @@ if [[ -f "$MANIFEST" ]]; then
         run_rm "$item"
       else
         log "Preserving top-level directory: $OPT_BASE (use --remove-root to remove it)"
+        # remove contents but keep directory if desired
+        run_rm_contents_keep_dir() {
+          local dir="$1"
+          if [[ "$DRY_RUN" == true ]]; then
+            echo "[DRY-RUN] Would remove contents of: $dir (preserve directory)"
+            return
+          fi
+          if [[ -d "$dir" ]]; then
+            find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+            log "Removed contents of: $dir (directory preserved)"
+          fi
+        }
         run_rm_contents_keep_dir "$OPT_BASE"
       fi
     else
       run_rm "$item"
     fi
   done
+
 else
-  log "No manifest found; performing dynamic detection of installed files."
+  log "No manifest found; using conservative explicit artifact list."
 
-  # 1) Remove installed files under /opt but preserve OPT_BASE directory by default
-  if [[ -d "$OPT_BASE" ]]; then
-    if [[ "$REMOVE_ROOT" == true ]]; then
-      run_rm "$OPT_BASE"
-    else
-      # Build canonical preserve list
-      preserve_list=()
-      if [[ -d "$OPT_BASE/config" ]]; then
-        preserve_list+=( "$(realpath -s "$OPT_BASE/config")" )
-      fi
-      # Add any other preserve paths here, e.g.:
-      # [[ -d "$OPT_BASE/data" ]] && preserve_list+=( "$(realpath -s "$OPT_BASE/data")" )
+  # Conservative explicit list of files/dirs to remove (safe defaults)
+  # Add only items that the installer creates. Do NOT wildcard-remove everything.
+  declare -a opt_items=(
+    "$OPT_BASE/gnome-launcher.sh"
+    "$OPT_BASE/gnome-setup.sh"
+    "$OPT_BASE/manual-setup.sh"
+    "$OPT_BASE/advisor.sh"
+    "$OPT_BASE/advisor-addon.sh"
+    "$OPT_BASE/all-ways-egpu-auto-setup.sh"
+    "$OPT_BASE/install-rgb-gpus-teaming.sh"
+    "$OPT_BASE/update-rgb-gpus-teaming.sh"
+    "$OPT_BASE/uninstall-rgb-gpus-teaming.sh"
+    "$OPT_BASE/README.md"
+    "$OPT_BASE/LICENSE"
+    "$OPT_BASE/logo.png"
+    "$OPT_BASE/logo2.png"
+    "$OPT_BASE/nautilus-scripts"
+    "$OPT_BASE/gnome-extension"
+    "$OPT_BASE/.git"
+    "$OPT_BASE/.github"
+    # desktop files that may have been installed system-wide
+    "$DESKTOP_DIR/advisor.desktop"
+    "$DESKTOP_DIR/gnome-setup.desktop"
+    "$DESKTOP_DIR/manual-setup.desktop"
+    "$DESKTOP_DIR/all-ways-egpu-auto-setup.desktop"
+  )
 
-      log "Preserve canonical paths: ${preserve_list[*]:-<none>}"
+  # Remove only items in the explicit list
+  for p in "${opt_items[@]}"; do
+    run_rm "$p"
+  done
 
-      if [[ "$DRY_RUN" == true ]]; then
-        echo "[DRY-RUN] Would remove files under $OPT_BASE except preserved paths: ${preserve_list[*]:-<none>}"
-      else
-        shopt -s dotglob nullglob
-        for entry in "$OPT_BASE"/* "$OPT_BASE"/.[!.]* "$OPT_BASE"/..?*; do
-          [[ -e "$entry" ]] || continue
-          entry_real="$(realpath -s "$entry" 2>/dev/null || true)"
+  # Nautilus script (explicit path)
+  run_rm "$NAUTILUS_SCRIPT"
 
-          # Skip top-level directory itself
-          if [[ "$entry_real" == "$(realpath -s "$OPT_BASE")" ]]; then
-            log "Skipping top-level directory entry: $entry"
-            continue
-          fi
-
-          # Skip preserved canonical paths
-          skip=false
-          for p in "${preserve_list[@]}"; do
-            if [[ -n "$p" && "$entry_real" == "$p" ]]; then
-              log "Preserving: $entry (canonical: $entry_real)"
-              skip=true
-              break
-            fi
-          done
-          if [[ "$skip" == true ]]; then
-            continue
-          fi
-
-          rm -rf -- "$entry"
-          log "Removed: $entry"
-        done
-        shopt -u dotglob nullglob
-      fi
-    fi
-  else
-    log "OPT_BASE not found: $OPT_BASE"
-  fi
-
-  # 2) Find .desktop files that reference the /opt install in Exec or TryExec
-  desktop_matches=()
-  while IFS= read -r -d $'\0' file; do
-    desktop_matches+=("$file")
-  done < <(grep -IlZ --binary-files=without-match -E '/opt/RGB-GPUs-Teaming.OP' /usr/share/applications/*.desktop 2>/dev/null || true)
-
-  # Also check TryExec lines explicitly
-  while IFS= read -r -d $'\0' file; do
-    case " ${desktop_matches[*]} " in
-      *" $file "*) ;;
-      *) desktop_matches+=("$file") ;;
-    esac
-  done < <(grep -IlZ --binary-files=without-match -E '^TryExec=.*(/opt/RGB-GPUs-Teaming.OP|/opt/RGB-GPUs-Teaming.OP/)' /usr/share/applications/*.desktop 2>/dev/null || true)
-
-  # Fallback to common filenames if none found
-  if [[ ${#desktop_matches[@]} -eq 0 ]]; then
-    log "No .desktop files referencing /opt found; falling back to common filenames."
-    fallback=(
-      /usr/share/applications/advisor.desktop
-      /usr/share/applications/gnome-setup.desktop
-      /usr/share/applications/manual-setup.desktop
-      /usr/share/applications/all-ways-egpu-auto-setup.desktop
-    )
-    for f in "${fallback[@]}"; do
-      if [[ -f "$f" ]]; then
-        desktop_matches+=("$f")
-      fi
-    done
-  fi
-
-  # Remove matched desktop files
-  if [[ ${#desktop_matches[@]} -gt 0 ]]; then
-    for f in "${desktop_matches[@]}"; do
-      run_rm "$f"
-    done
-  else
-    log "No desktop files to remove."
-  fi
-
-  # 3) Remove Nautilus script if it matches the project
-  if [[ -f "$NAUTILUS_SCRIPT" ]]; then
-    run_rm "$NAUTILUS_SCRIPT"
-  else
-    while IFS= read -r -d $'\0' ns; do
-      run_rm "$ns"
-    done < <(grep -IlZ --binary-files=without-match -E '/opt/RGB-GPUs-Teaming.OP' /usr/share/nautilus/scripts/* 2>/dev/null || true)
-  fi
-
-  # 4) Remove system GNOME extension folder
+  # System GNOME extension folder
   run_rm "$EXTENSION_SYS"
 fi
 
@@ -234,12 +165,13 @@ if [[ "$SILENT" != true ]]; then
   if [[ "$DRY_RUN" == true ]]; then
     echo "Dry-run mode: no files were actually removed."
   else
-    echo "System-wide uninstall complete."
+    echo "Conservative uninstall complete."
     if [[ "$REMOVE_ROOT" == true ]]; then
       echo "Top-level directory $OPT_BASE was removed."
     else
-      echo "Note: the top-level directory $OPT_BASE was preserved by default."
+      echo "Top-level directory $OPT_BASE was preserved."
     fi
     echo "If desktop entries still appear, run 'update-desktop-database' and/or log out and back in."
   fi
 fi
+
