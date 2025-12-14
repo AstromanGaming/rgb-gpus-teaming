@@ -1,4 +1,3 @@
-// extension.js — ES module for GNOME Shell 49
 import GLib from 'gi://GLib';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -45,9 +44,10 @@ function insertLaunchItem(owner, command) {
     } catch (e) { logDebug(`spawn failed: ${e}`); }
   });
 
-  try { owner.menu?.addMenuItem(item, 0); } catch (e) {}
-  try { owner.addMenuItem?.(item, 0); } catch (e) {}
-  try { owner._menu?.addMenuItem(item, 0); } catch (e) {}
+  // Add the item at the end of the menu (no index) so it appears below existing entries.
+  try { if (owner.menu && typeof owner.menu.addMenuItem === 'function') owner.menu.addMenuItem(item); } catch (e) {}
+  try { if (owner.addMenuItem && typeof owner.addMenuItem === 'function') owner.addMenuItem(item); } catch (e) {}
+  try { if (owner._menu && typeof owner._menu.addMenuItem === 'function') owner._menu.addMenuItem(item); } catch (e) {}
 
   _owners.add(owner);
   _items.set(owner, item);
@@ -123,10 +123,12 @@ export function enable() {
   cleanupItems();
   restoreOverrides();
 
+  // Primary injection points (app menu / app grid icons)
   if (AppMenuModule?.AppMenu?.prototype?.open) {
     overrideMethod(AppMenuModule.AppMenu, 'open', makeAppMenuOpenWrapper);
     logDebug('Injected into AppMenu.open');
-  } else if (AppDisplayModule?.AppIcon) {
+  }
+  if (AppDisplayModule?.AppIcon) {
     const methods = ['_onButtonPress', '_showContextMenu', 'open_context_menu', 'show_context_menu'];
     for (const m of methods) {
       if (AppDisplayModule.AppIcon.prototype?.[m]) {
@@ -134,7 +136,31 @@ export function enable() {
         logDebug(`Injected into AppIcon.${m}`);
       }
     }
-  } else {
+  }
+
+  // Additional injection points for dash/dock items (cover common names)
+  // Some GNOME versions expose DashItem or Dash prototypes; try to hook them too.
+  const dashCandidates = [
+    AppDisplayModule.Dash,            // sometimes present
+    AppDisplayModule.DashItem,        // sometimes present
+    Main.overview?.dash?.constructor, // fallback: runtime dash constructor
+    Main.dash?.constructor            // older/newer variants
+  ];
+
+  for (const cand of dashCandidates) {
+    if (cand && cand.prototype) {
+      const dashMethods = ['_onButtonPress', '_showContextMenu', 'open_context_menu', 'show_context_menu', '_onSecondaryClick'];
+      for (const m of dashMethods) {
+        if (cand.prototype[m]) {
+          overrideMethod(cand, m, makeAppIconWrapper);
+          logDebug(`Injected into Dash candidate ${cand.name || '<anon>'}.${m}`);
+        }
+      }
+    }
+  }
+
+  // If nothing was injected, log that fact
+  if (_orig.length === 0) {
     logDebug('No injection points found; extension will not add menu items.');
   }
 }
