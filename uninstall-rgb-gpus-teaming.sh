@@ -2,15 +2,15 @@
 set -euo pipefail
 
 # uninstall-rgb-gpus-teaming.sh
-# System-wide uninstaller that dynamically detects .desktop files referencing /opt/RGB-GPUs-Teaming.OP
+# System-wide uninstaller that removes installed artifacts but preserves the main /opt directory by default.
 #
 # Usage:
-#   sudo ./uninstall-rgb-gpus-teaming.sh [--silent] [--dry-run] [--verbose] [--silent] [--help]
+#   sudo ./uninstall-rgb-gpus-teaming.sh [--silent] [--dry-run] [--verbose] [--remove-root] [--help]
 #
 # Notes:
 # - Prefers /opt/RGB-GPUs-Teaming.OP/install-manifest.txt when present.
 # - Otherwise finds .desktop files that reference /opt/RGB-GPUs-Teaming.OP in Exec or TryExec.
-# - Requires root.
+# - By default the script will NOT remove the OPT_BASE directory itself; use --remove-root to remove it.
 
 OPT_BASE="/opt/RGB-GPUs-Teaming.OP"
 MANIFEST="$OPT_BASE/install-manifest.txt"
@@ -21,18 +21,21 @@ NAUTILUS_SCRIPT="/usr/share/nautilus/scripts/Launch with RGB GPUs Teaming"
 DRY_RUN=false
 VERBOSE=false
 SILENT=false
+REMOVE_ROOT=false
 
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [options]
 
 Options:
-  --silent     Suppress final informational messages.
-  --dry-run    Show actions without making changes.
-  --verbose    Print detailed progress messages.
-  -h, --help   Show this help message and exit.
+  --silent        Suppress final informational messages.
+  --dry-run       Show actions without making changes.
+  --verbose       Print detailed progress messages.
+  --remove-root   Also remove the OPT_BASE directory itself (use with caution).
+  -h, --help      Show this help message and exit.
 
-This script performs a system-wide uninstall of RGB-GPUs-Teaming installed under /opt.
+This script performs a system-wide uninstall of RGB-GPUs-Teaming installed under $OPT_BASE.
+By default the top-level directory $OPT_BASE is preserved; use --remove-root to remove it.
 EOF
 }
 
@@ -41,6 +44,7 @@ while (( "$#" )); do
     --dry-run) DRY_RUN=true; shift ;;
     --verbose) VERBOSE=true; shift ;;
     --silent) SILENT=true; shift ;;
+    --remove-root) REMOVE_ROOT=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Warning: unknown argument '$1' (ignored)"; shift ;;
   esac
@@ -68,20 +72,84 @@ run_rm() {
   fi
 }
 
+# Remove contents of a directory but keep the directory itself
+run_rm_contents_keep_dir() {
+  local dir="$1"
+  if [[ "$DRY_RUN" == true ]]; then
+    echo "[DRY-RUN] Would remove contents of: $dir (preserve directory)"
+    log "[DRY-RUN] Would remove contents of: $dir (preserve directory)"
+    return
+  fi
+  if [[ -d "$dir" ]]; then
+    # remove everything inside dir but not dir itself
+    find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+    log "Removed contents of: $dir (directory preserved)"
+  else
+    log "Directory not found (skipping): $dir"
+  fi
+}
+
 echo "Starting system-wide uninstall of RGB-GPUs-Teaming from $OPT_BASE"
+log "Options: dry-run=$DRY_RUN verbose=$VERBOSE remove-root=$REMOVE_ROOT"
 
 # If manifest exists, use it (most reliable)
 if [[ -f "$MANIFEST" ]]; then
   log "Found manifest: $MANIFEST"
   mapfile -t items < "$MANIFEST"
+  # iterate in reverse order (best-effort cleanup)
   for ((i=${#items[@]}-1; i>=0; i--)); do
-    run_rm "${items[i]}"
+    item="${items[i]}"
+    # Protect OPT_BASE unless --remove-root specified
+    if [[ "$item" == "$OPT_BASE" || "$item" == "$OPT_BASE/" ]]; then
+      if [[ "$REMOVE_ROOT" == true ]]; then
+        run_rm "$item"
+      else
+        log "Preserving top-level directory: $OPT_BASE (use --remove-root to remove it)"
+        # if we want to remove contents but keep dir, do that
+        run_rm_contents_keep_dir "$OPT_BASE"
+      fi
+    else
+      run_rm "$item"
+    fi
   done
 else
   log "No manifest found; performing dynamic detection of installed files."
 
-  # 1) Remove the /opt install directory
-  run_rm "$OPT_BASE"
+  # 1) Remove installed files under /opt but preserve OPT_BASE directory by default
+  if [[ -d "$OPT_BASE" ]]; then
+    if [[ "$REMOVE_ROOT" == true ]]; then
+      run_rm "$OPT_BASE"
+    else
+      # Remove common installed subpaths but keep config if present
+      # Remove everything except 'config' directory (if exists) and preserve OPT_BASE itself
+      # If you prefer to preserve config and other specific dirs, adjust the exclusions below.
+      log "Preserving $OPT_BASE directory; removing installed files inside it (config preserved if present)."
+      # Remove files and dirs except 'config'
+      if [[ "$DRY_RUN" == true ]]; then
+        echo "[DRY-RUN] Would remove files under $OPT_BASE except $OPT_BASE/config"
+      else
+        shopt -s dotglob
+        for entry in "$OPT_BASE"/* "$OPT_BASE"/.[!.]* "$OPT_BASE"/..?*; do
+          # skip if entry doesn't exist (globs may expand to themselves)
+          [[ -e "$entry" ]] || continue
+          # preserve config directory
+          if [[ "$(realpath -s "$entry")" == "$(realpath -s "$OPT_BASE/config")" ]]; then
+            log "Preserving config directory: $entry"
+            continue
+          fi
+          # do not remove the top-level directory itself
+          if [[ "$entry" == "$OPT_BASE" ]]; then
+            continue
+          fi
+          rm -rf "$entry"
+          log "Removed: $entry"
+        done
+        shopt -u dotglob
+      fi
+    fi
+  else
+    log "OPT_BASE not found: $OPT_BASE"
+  fi
 
   # 2) Find .desktop files that reference the /opt install in Exec or TryExec
   desktop_matches=()
@@ -89,16 +157,15 @@ else
     desktop_matches+=("$file")
   done < <(grep -IlZ --binary-files=without-match -E '/opt/RGB-GPUs-Teaming.OP' /usr/share/applications/*.desktop 2>/dev/null || true)
 
-  # Also check TryExec lines explicitly (some desktop files may use TryExec with absolute path)
+  # Also check TryExec lines explicitly
   while IFS= read -r -d $'\0' file; do
-    # avoid duplicates
     case " ${desktop_matches[*]} " in
       *" $file "*) ;;
       *) desktop_matches+=("$file") ;;
     esac
   done < <(grep -IlZ --binary-files=without-match -E '^TryExec=.*(/opt/RGB-GPUs-Teaming.OP|/opt/RGB-GPUs-Teaming.OP/)' /usr/share/applications/*.desktop 2>/dev/null || true)
 
-  # If no matches found by content, fall back to common filenames
+  # Fallback to common filenames if none found
   if [[ ${#desktop_matches[@]} -eq 0 ]]; then
     log "No .desktop files referencing /opt found; falling back to common filenames."
     fallback=(
@@ -155,6 +222,7 @@ if [[ "$SILENT" != true ]]; then
     echo "Dry-run mode: no files were actually removed."
   else
     echo "System-wide uninstall complete."
+    echo "Note: the top-level directory $OPT_BASE was preserved by default."
     echo "If desktop entries still appear, run 'update-desktop-database' and/or log out and back in."
   fi
 fi

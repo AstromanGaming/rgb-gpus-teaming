@@ -6,10 +6,6 @@ set -euo pipefail
 #
 # Usage:
 #   sudo ./update-rgb-gpus-teaming.sh [--all-ways-egpu] [--silent] [--dry-run] [--verbose] [--help]
-#
-# Notes:
-# - This script operates on the system-wide install at /opt/RGB-GPUs-Teaming.OP.
-# - It expects install/uninstall scripts to be present and executable in /opt/RGB-GPUs-Teaming.OP.
 
 INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
 INSTALL_SCRIPT="$INSTALL_BASE/install-rgb-gpus-teaming.sh"
@@ -46,7 +42,7 @@ while (( "$#" )); do
   esac
 done
 
-log() { [[ "$VERBOSE" == true ]] && printf '%s\n' "$*"; }
+log() { [[ "$VERBOSE" == true ]] && printf '[%s] %s\n' "$(date +'%F %T')" "$*"; }
 
 echo "Update/reinstall for system install at $INSTALL_BASE"
 log "Options: all-ways-egpu=$ALL_WAYS_EGPU, silent=$SILENT, verbose=$VERBOSE, dry-run=$DRY_RUN"
@@ -57,7 +53,7 @@ if [[ ! -d "$INSTALL_BASE" ]]; then
 fi
 
 # Ensure running as root (re-run with sudo if not)
-if [[ "$(id -u)" -ne 0 ]]; then
+if [[ "$(id -u)" -ne 0 && "$DRY_RUN" != true ]]; then
   echo "This script requires root. Re-running with sudo..."
   exec sudo "$0" "$@"
 fi
@@ -83,17 +79,15 @@ $ALL_WAYS_EGPU && script_flags+=(--all-ways-egpu)
 $SILENT && script_flags+=(--silent)
 $DRY_RUN && script_flags+=(--dry-run)
 
-# Helper to run a script (already root) with safety checks
+# Helper to run a script (already root) with logging and better diagnostics
 run_script() {
   local script_path="$1"; shift
   local args=( "$@" )
+  local tmplog
 
   if [[ ! -f "$script_path" ]]; then
     echo "Warning: script not found: $script_path"
     return 2
-  fi
-  if [[ ! -x "$script_path" ]]; then
-    echo "Warning: script not executable, attempting to run with bash: $script_path"
   fi
 
   if [[ "$DRY_RUN" == true ]]; then
@@ -101,25 +95,34 @@ run_script() {
     return 0
   fi
 
-  # Run with bash -euo pipefail to preserve strict behavior
-  if [[ -x "$script_path" ]]; then
-    bash -euo pipefail "$script_path" "${args[@]}"
+  tmplog="$(mktemp /tmp/rgb-install.XXXXXX.log)"
+  chmod 600 "$tmplog"
+  echo "Running: $script_path ${args[*]} (logging to $tmplog)"
+  # Run with bash -x to aid debugging; capture stdout+stderr
+  if bash -x "$script_path" "${args[@]}" >"$tmplog" 2>&1; then
+    log "Script succeeded: $script_path"
+    rm -f "$tmplog"
+    return 0
   else
-    bash -euo pipefail "$script_path" "${args[@]}"
+    local rc=$?
+    echo "Script failed with exit code $rc. Last 200 lines of log:" >&2
+    tail -n 200 "$tmplog" >&2
+    echo "Full log saved at: $tmplog" >&2
+    return $rc
   fi
 }
 
-# Run uninstall script if present
+# Run uninstall script if present (tolerate non-zero exit)
 if [[ -f "$UNINSTALL_SCRIPT" ]]; then
   echo "Running uninstall script..."
   if ! run_script "$UNINSTALL_SCRIPT" "${script_flags[@]}"; then
-    echo "Warning: uninstall script returned non-zero; continuing to reinstall."
+    echo "Warning: uninstall script returned non-zero; continuing to reinstall." >&2
   fi
 else
   echo "Warning: Uninstall script not found: $UNINSTALL_SCRIPT"
 fi
 
-# Run install script
+# Run install script (fail if it errors)
 if [[ -f "$INSTALL_SCRIPT" ]]; then
   echo "Running install script..."
   if ! run_script "$INSTALL_SCRIPT" "${script_flags[@]}"; then
