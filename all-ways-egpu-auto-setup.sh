@@ -204,7 +204,7 @@ while true; do
             echo "Updated eGPU configuration saved in $FINAL_FILE"
             ;;
         3)
-            echo "Regenerating scanner output now..."
+            echo "Regenerating embedded advisor output now..."
             # regenerate using embedded advisor (no sudo)
             generate_memfile_inline || {
                 echo "Embedded advisor failed. See messages above."
