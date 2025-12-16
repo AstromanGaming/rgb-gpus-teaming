@@ -30,10 +30,10 @@ if [[ -z "$REAL_USER" || -z "$HOME_DIR" ]]; then
 fi
 
 # Ensure running as root for system-wide write; re-run with sudo if not
-if [[ "$(id -u)" -ne 0 ]]; then
-  echo "This script requires root. Re-running with sudo..."
-  exec sudo -- "$0" "$@"
-fi
+# if [[ "$(id -u)" -ne 0 ]]; then
+#  echo "This script requires root. Re-running with sudo..."
+#  exec sudo -- "$0" "$@"
+# fi
 
 # Emit trace so we can see whether sudo was used and what SUDO_USER is
 trace
