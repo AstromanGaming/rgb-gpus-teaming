@@ -4,8 +4,6 @@ set -euo pipefail
 # all-ways-egpu-auto-setup.sh
 # Interactive menu to build/apply final all-ways-egpu answers for a system install.
 # Expects system install at /opt/rgb-gpus-teaming
-#
-# Run as root (the script will re-run with sudo if invoked without).
 
 INSTALL_BASE="/opt/rgb-gpus-teaming"
 CONF_DIR="/usr/share/all-ways-egpu"
@@ -39,8 +37,9 @@ fi
 
 # Basic checks
 if [[ -z "$REAL_USER" || -z "$HOME_DIR" ]]; then
-    printf '%s\n' "Error: could not determine real user or home directory." >&2
-    exit 1
+    printf '%s\n' "Warning: could not determine real user or home directory; defaulting to root." >&2
+    REAL_USER="root"
+    HOME_DIR="/root"
 fi
 
 if [[ ! -d "$INSTALL_BASE" ]]; then
@@ -48,46 +47,109 @@ if [[ ! -d "$INSTALL_BASE" ]]; then
     exit 1
 fi
 
-# Regenerate memory file if user helper exists and is executable (run as real user)
-if [[ -x "$INSTALL_BASE/advisor-addon.sh" ]]; then
-    # Prefer runuser when running as root to avoid invoking sudo again
-    if command -v runuser >/dev/null 2>&1; then
-        runuser -u "$REAL_USER" -- "$INSTALL_BASE/advisor-addon.sh" || true
-    else
-        # Fallback to su if runuser is not available
-        su - "$REAL_USER" -c "$INSTALL_BASE/advisor-addon.sh" || true
-    fi
-fi
-
 # Ensure config dir exists
 mkdir -p "$CONFIG_DIR"
 chmod 0755 "$CONFIG_DIR"
 
+# Embedded advisor: generates MEM_FILE
+generate_memfile_inline() {
+    local cfg="$MEM_FILE"
+    local EXTENDED_PERMS=0644
+
+    # Check lspci availability
+    if ! command -v lspci >/dev/null 2>&1; then
+        printf '%s\n' "Error: lspci is not installed. Install pciutils (e.g., sudo apt install pciutils)." >&2
+        return 1
+    fi
+
+    # Create/empty the config file
+    : > "$cfg"
+    chmod "$EXTENDED_PERMS" "$cfg"
+
+    # Helper to safely append a quoted key="value" line to the config file
+    write_config() {
+        local key="$1"
+        local val="$2"
+        val="${val//\\/\\\\}"
+        val="${val//\"/\\\"}"
+        printf '%s="%s"\n' "$key" "$val" >> "$cfg"
+    }
+
+    # Capture VGA and 3D controllers
+    local i=1
+    while IFS= read -r line; do
+        [[ -z "${line// /}" ]] && continue
+        gpu_name="$(printf '%s' "$line" | sed -E 's/^[^[:space:]]+[[:space:]]+[^:]+:[[:space:]]*//')"
+        gpu_name="$(printf '%s' "$gpu_name" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+        write_config "GPU_${i}_name" "$gpu_name"
+        printf 'Detected GPU_%s: %s\n' "$i" "$gpu_name"
+        ((i++))
+    done < <(lspci --no-legend | grep -E "VGA|3D" || true)
+
+    # Capture Audio devices
+    local j=1
+    while IFS= read -r line; do
+        [[ -z "${line// /}" ]] && continue
+        audio_name="$(printf '%s' "$line" | sed -E 's/^[^[:space:]]+[[:space:]]+[^:]+:[[:space:]]*//')"
+        audio_name="$(printf '%s' "$audio_name" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+        write_config "AUDIO_${j}_name" "$audio_name"
+        printf 'Detected AUDIO_%s: %s\n' "$j" "$audio_name"
+        ((j++))
+    done < <(lspci --no-legend | grep -E "Audio" || true)
+
+    # If no devices found, warn and remove empty config
+    if [[ $i -eq 1 && $j -eq 1 ]]; then
+        printf '%s\n' "Warning: no VGA/3D or Audio devices detected by lspci." >&2
+        rm -f "$cfg" || true
+        return 1
+    fi
+
+    # Set ownership to REAL_USER if valid and not root
+    if [[ "$REAL_USER" != "root" && -n "$(getent passwd "$REAL_USER")" ]]; then
+        chown "$REAL_USER":"$REAL_USER" "$cfg"
+    else
+        printf 'TRACE: skipping chown for memfile, REAL_USER=%s\n' "$REAL_USER" >&2
+    fi
+    chmod "$EXTENDED_PERMS" "$cfg"
+
+    printf 'Initial configuration written to %s\n' "$cfg"
+    return 0
+}
+
+# Regenerate MEM_FILE using the embedded advisor only
+generate_memfile_inline || true
+
+# If MEM_FILE still missing or empty, warn and continue (menu will check)
 if [[ ! -s "$MEM_FILE" ]]; then
-    echo "Error: $MEM_FILE not found or empty. advisor-addon.sh or the system scanner must generate it."
-    read -r -p "Done. Press Enter to return to menu..."
-    exit 1
+    printf '%s\n' "Warning: $MEM_FILE not found or empty after scanning. The interactive menu requires this file." >&2
 fi
 
+# Interactive menu
 while true; do
     clear
     echo "===== Configuration Menu ====="
-    echo "1) Use existing final memory"
-    echo "2) Configure GPUs & Audio interactively (create/update)"
-    echo "3) Exit"
-    read -r -p "Enter choice [1/2/3]: " choice
+    echo "1) Use existing memory"
+    echo "2) Configure eGPU"
+    echo "3) Embedded advisor output"
+    echo "4) Exit"
+    read -r -p "Enter choice [1/2/3/4]: " choice
 
     case "$choice" in
         1)
             if [[ ! -s "$FINAL_FILE" ]]; then
-                echo "No final memory file found or it's empty. Please run configuration first."
+                echo "No memory file found or it's empty. Please run configure eGPU first."
                 read -r -p "Press Enter to return to menu..."
                 continue
             fi
             echo "Using existing final configuration from $FINAL_FILE"
             ;;
         2)
-            echo "Configuring GPUs and Audio interactively..."
+            echo "Configure eGPU interactively..."
+            if [[ ! -s "$MEM_FILE" ]]; then
+                echo "Output file is missing. Please run embedded advisor output first."
+                read -r -p "Press Enter to return to menu..."
+                continue
+            fi
             source "$MEM_FILE"
             : > "$FINAL_FILE"
 
@@ -124,19 +186,30 @@ while true; do
             done
 
             if [[ ! -s "$FINAL_FILE" ]]; then
-                echo "No GPUs/Audio configured. Final file not created."
+                echo "No eGPU configured. Final file not created."
                 rm -f "$FINAL_FILE"
                 read -r -p "Press Enter to return to menu..."
                 continue
             fi
 
             # Ensure final file owned by real user
-            chown "$REAL_USER":"$REAL_USER" "$FINAL_FILE"
+            if [[ "$REAL_USER" != "root" && -n "$(getent passwd "$REAL_USER")" ]]; then
+                chown "$REAL_USER":"$REAL_USER" "$FINAL_FILE"
+            fi
             chmod 0644 "$FINAL_FILE"
 
-            echo "Updated final configuration saved in $FINAL_FILE"
+            echo "Updated eGPU configuration saved in $FINAL_FILE"
             ;;
         3)
+            echo "Regenerating scanner output now..."
+            # regenerate using embedded advisor (no sudo)
+            generate_memfile_inline || {
+                echo "Embedded advisor failed. See messages above."
+            }
+            read -r -p "Done. Press Enter to return to menu..."
+            continue
+            ;;
+        4)
             echo "Exiting..."
             break
             ;;
@@ -148,7 +221,6 @@ while true; do
     esac
 
     if [[ -s "$FINAL_FILE" ]] && grep -qE '^(GPU|AUDIO)_[0-9]+_value=' "$FINAL_FILE"; then
-        # shellcheck disable=SC1090
         source "$FINAL_FILE"
 
         # Build egpu_answers: one line per device (GPU then AUDIO), y or n
@@ -220,20 +292,18 @@ while true; do
         clean_internal="$(printf '%s' "$internal_answers" | sed 's/^[[:space:]]\+//; s/[[:space:]]\+$//')"
         clean_finale="$(printf '%s' "$finale_answers" | sed 's/^[[:space:]]\+//; s/[[:space:]]\+$//')"
 
-        # Build and pipe exact input to the setup command
+        # Build and pipe exact input to the setup command (no sudo: already root)
         {
-            # If configuration directory contains certain files, answer 'y' to the initial prompt
             if ls "$CONF_DIR" 2>/dev/null | grep -qE "^(0|1|egpu-bus-ids|max-retry|user-bus-ids)$"; then
                 printf 'y\n'
             fi
 
-            # Print eGPU answers, internal answers, and final answers in order
             printf '%s\n' "$clean_egpu"
             printf '%s\n' "$clean_internal"
             printf '%s\n' "$clean_finale"
         } | all-ways-egpu setup
 
-        # Run follow-up commands as root (no sudo needed because script runs as root)
+        # Follow-up commands as root (no sudo)
         all-ways-egpu set-boot-vga egpu || true
         all-ways-egpu set-compositor-primary egpu || true
 
