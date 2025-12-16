@@ -8,16 +8,25 @@ set -euo pipefail
 INSTALL_BASE="/opt/rgb-gpus-teaming"
 CONFIG_DIR="$INSTALL_BASE/config"
 CONFIG_FILE="$CONFIG_DIR/gpu_all-ways-egpu_config"
-EXTENDED_PERMS="0644"
+EXTENDED_PERMS=0644
 
-# Determine the real (non-root) user and their home directory reliably
-REAL_USER="${SUDO_USER:-$(logname 2>/dev/null || echo "$USER")}"
+# Determine the real (non-root) user and their home directory reliably.
+# Prefer SUDO_USER when present; otherwise try logname; fall back to empty.
+REAL_USER="${SUDO_USER:-$(logname 2>/dev/null || echo "")}"
 HOME_DIR="$(getent passwd "$REAL_USER" | cut -d: -f6 || true)"
+
+# Trace helper for debugging sudo/identity issues (can be removed later)
+trace() {
+  printf 'TRACE: uid=%s whoami=%s SUDO_USER=%s REAL_USER=%s HOME_DIR=%s\n' \
+    "$(id -u -n 2>/dev/null || id -u)" "$(whoami)" "${SUDO_USER:-}" "${REAL_USER:-}" "${HOME_DIR:-}" >&2
+}
 
 # Basic sanity checks
 if [[ -z "$REAL_USER" || -z "$HOME_DIR" ]]; then
-  printf '%s\n' "Error: could not determine real user or home directory." >&2
-  exit 1
+  printf '%s\n' "Warning: could not determine a non-root real user or home directory; continuing as root." >&2
+  # Do not exit here: allow running as root-only installations.
+  REAL_USER="root"
+  HOME_DIR="/root"
 fi
 
 # Ensure running as root for system-wide write; re-run with sudo if not
@@ -25,6 +34,9 @@ if [[ "$(id -u)" -ne 0 ]]; then
   echo "This script requires root. Re-running with sudo..."
   exec sudo -- "$0" "$@"
 fi
+
+# Emit trace so we can see whether sudo was used and what SUDO_USER is
+trace
 
 # Check lspci availability
 if ! command -v lspci >/dev/null 2>&1; then
@@ -36,7 +48,7 @@ fi
 mkdir -p "$CONFIG_DIR"
 chmod 0755 "$CONFIG_DIR"
 
-# Create/empty the config file as root, then set ownership to real user
+# Create/empty the config file as root
 : > "$CONFIG_FILE"
 chmod "$EXTENDED_PERMS" "$CONFIG_FILE"
 
@@ -83,8 +95,14 @@ if [[ $i -eq 1 && $j -eq 1 ]]; then
   exit 1
 fi
 
-# Ensure config file is owned by the real user and has correct perms
-chown "$REAL_USER":"$REAL_USER" "$CONFIG_FILE"
+# Only chown to REAL_USER when REAL_USER is not root and exists in passwd
+if [[ "$REAL_USER" != "root" && -n "$(getent passwd "$REAL_USER")" ]]; then
+  chown "$REAL_USER":"$REAL_USER" "$CONFIG_FILE"
+else
+  # Keep root ownership if REAL_USER is root or unknown
+  printf 'TRACE: skipping chown, REAL_USER=%s\n' "$REAL_USER" >&2
+fi
+
 chmod "$EXTENDED_PERMS" "$CONFIG_FILE"
 
 echo
