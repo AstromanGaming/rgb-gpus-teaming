@@ -7,12 +7,12 @@ set -euo pipefail
 #   sudo ./update-rgb-gpus-teaming.sh [--all-ways-egpu] [--help]
 #
 # Notes:
-#  - This script updates a system install under /opt/RGB-GPUs-Teaming.OP.
+#  - This script updates a system install under /opt/rgb-gpus-teaming.
 #  - Child scripts are executed with INSTALL_BASE as the working directory
 #    to avoid accidental copying of the caller's current directory (e.g., $HOME).
 #  - The reinstall script is invoked without extra flags for maximum compatibility.
 
-INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
+INSTALL_BASE="/opt/rgb-gpus-teaming"
 INSTALL_SCRIPT="$INSTALL_BASE/install-rgb-gpus-teaming.sh"
 UNINSTALL_SCRIPT="$INSTALL_BASE/reinstall-rgb-gpus-teaming.sh"
 GIT_DIR="$INSTALL_BASE/.git"

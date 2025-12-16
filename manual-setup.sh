@@ -15,7 +15,7 @@ set -euo pipefail
 #   --non-interactive       Do not prompt; use saved config (if any).
 #   --help, -h              Show this help and exit.
 
-INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
+INSTALL_BASE="/opt/rgb-gpus-teaming"
 SYSTEM_CONFIG_DIR="$INSTALL_BASE/config"
 SYSTEM_MEM_FILE="$SYSTEM_CONFIG_DIR/gpu_launcher_config"
 

@@ -5,7 +5,7 @@ set -euo pipefail
 # Launch a command or executable with GPU offload, using per-user config when available.
 # Script lives in /opt and is intended to be executable by normal users.
 
-INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
+INSTALL_BASE="/opt/rgb-gpus-teaming"
 SYSTEM_MEM_FILE="$INSTALL_BASE/config/gpu_launcher_gnome_config"
 
 # Determine the target user whose config we should read:

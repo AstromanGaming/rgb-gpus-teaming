@@ -7,7 +7,7 @@ set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
 SRC_DIR="$(pwd)"
-DEST_BASE="/opt/RGB-GPUs-Teaming.OP"
+DEST_BASE="/opt/rgb-gpus-teaming"
 DEST_DESKTOP_DIR="/usr/share/applications"
 DEST_NAUTILUS_DIR="/usr/share/nautilus/scripts"
 DEST_EXTENSIONS_DIR="/usr/share/gnome-shell/extensions"

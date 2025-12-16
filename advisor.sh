@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# /opt/RGB-GPUs-Teaming.OP/bin/gpu-detect.sh
 # System-wide GPU detection helper
 #
 # Usage:
-#   sudo /opt/RGB-GPUs-Teaming.OP/bin/gpu-detect.sh [--method glxinfo|lspci] [--timeout N] [--json] [--list] [--help]
+#   sudo /opt/rgb-gpus-teaming/advisor.sh [--method glxinfo|lspci] [--timeout N] [--json] [--list] [--help]
 #
 # Notes:
-# - Designed for system-wide installs under /opt/RGB-GPUs-Teaming.OP
+# - Designed for system-wide installs under /opt/rgb-gpus-teaming
 # - If run without sudo it still works; no files are modified
 # - --json prints machine-readable output; --list prints a compact list (one entry per line)
 
-INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
+INSTALL_BASE="/opt/rgb-gpus-teaming"
 SCRIPT_NAME="$(basename "$0")"
 
 METHOD=""

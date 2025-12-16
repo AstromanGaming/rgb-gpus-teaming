@@ -10,7 +10,7 @@ set -euo pipefail
 #  - By default the script runs in safe (simulation) mode.
 #  - Pass --confirm to perform actual removals.
 
-OPT_BASE="/opt/RGB-GPUs-Teaming.OP"
+OPT_BASE="/opt/rgb-gpus-teaming"
 MANIFEST="$OPT_BASE/install-manifest.txt"
 EXTENSION_UUID="rgb-gpus-teaming@astromangaming"
 EXTENSION_SYS="/usr/share/gnome-shell/extensions/$EXTENSION_UUID"

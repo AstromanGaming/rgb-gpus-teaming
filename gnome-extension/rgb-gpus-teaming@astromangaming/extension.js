@@ -41,7 +41,7 @@ export default class RgbGpusTeamingExtension extends Extension {
                 // Use system install path under /opt
                 const scriptPath = GLib.build_filenamev([
                     '/opt',
-                    'RGB-GPUs-Teaming.OP',
+                    'rgb-gpus-teaming',
                     'gnome-launcher.sh'
                 ]);
 

@@ -6,7 +6,7 @@ set -euo pipefail
 # Writes config to: $USER_HOME/.config/rgb-gpus-teaming/gpu_launcher_gnome_config
 # If run under sudo, the config is written for the real user (SUDO_USER).
 
-INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
+INSTALL_BASE="/opt/rgb-gpus-teaming"
 SYSTEM_CONFIG_DIR="$INSTALL_BASE/config"
 SYSTEM_MEM_FILE="$SYSTEM_CONFIG_DIR/gpu_launcher_gnome_config"
 

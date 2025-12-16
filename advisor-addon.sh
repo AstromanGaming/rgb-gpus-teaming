@@ -1,11 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-# System-wide config writer for /opt/RGB-GPUs-Teaming.OP
-# Writes /opt/RGB-GPUs-Teaming.OP/config/gpu_all-ways-egpu_config
+# System-wide config writer for /opt/rgb-gpus-teaming
+# Writes /opt/rgb-gpus-teaming/config/gpu_all-ways-egpu_config
 # Designed to be run as root (will re-run with sudo if invoked without).
 
-INSTALL_BASE="/opt/RGB-GPUs-Teaming.OP"
+INSTALL_BASE="/opt/rgb-gpus-teaming"
 CONFIG_DIR="$INSTALL_BASE/config"
 CONFIG_FILE="$CONFIG_DIR/gpu_all-ways-egpu_config"
 EXTENDED_PERMS=0644
