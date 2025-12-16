@@ -8,10 +8,10 @@ set -euo pipefail
 INSTALL_BASE="/opt/rgb-gpus-teaming"
 CONFIG_DIR="$INSTALL_BASE/config"
 CONFIG_FILE="$CONFIG_DIR/gpu_all-ways-egpu_config"
-EXTENDED_PERMS=0644
+EXTENDED_PERMS="0644"
 
-# Determine the real (non-sudo) user and their home
-REAL_USER="${SUDO_USER:-$USER}"
+# Determine the real (non-root) user and their home directory reliably
+REAL_USER="${SUDO_USER:-$(logname 2>/dev/null || echo "$USER")}"
 HOME_DIR="$(getent passwd "$REAL_USER" | cut -d: -f6 || true)"
 
 # Basic sanity checks
@@ -23,12 +23,12 @@ fi
 # Ensure running as root for system-wide write; re-run with sudo if not
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "This script requires root. Re-running with sudo..."
-  exec sudo "$0" "$@"
+  exec sudo -- "$0" "$@"
 fi
 
-# Check lspci availability (avoid using 'command' builtin)
-if ! which lspci >/dev/null 2>&1; then
-  printf '%s\n' "Error: lspci is not installed. Install it with your package manager (e.g., sudo apt install pciutils)." >&2
+# Check lspci availability
+if ! command -v lspci >/dev/null 2>&1; then
+  printf '%s\n' "Error: lspci is not installed. Install the pciutils package for your distribution (package name: pciutils)." >&2
   exit 1
 fi
 
@@ -62,7 +62,7 @@ while IFS= read -r line; do
   write_config "GPU_${i}_name" "$gpu_name"
   printf 'Detected GPU_%s: %s\n' "$i" "$gpu_name"
   ((i++))
-done < <(lspci | grep -E "VGA|3D" || true)
+done < <(lspci --no-legend | grep -E "VGA|3D" || true)
 
 # Capture Audio devices
 j=1
@@ -73,7 +73,7 @@ while IFS= read -r line; do
   write_config "AUDIO_${j}_name" "$audio_name"
   printf 'Detected AUDIO_%s: %s\n' "$j" "$audio_name"
   ((j++))
-done < <(lspci | grep -E "Audio" || true)
+done < <(lspci --no-legend | grep -E "Audio" || true)
 
 # If no devices found, warn and remove empty config
 if [[ $i -eq 1 && $j -eq 1 ]]; then
@@ -83,7 +83,7 @@ if [[ $i -eq 1 && $j -eq 1 ]]; then
   exit 1
 fi
 
-# Ensure config file is owned by the real user
+# Ensure config file is owned by the real user and has correct perms
 chown "$REAL_USER":"$REAL_USER" "$CONFIG_FILE"
 chmod "$EXTENDED_PERMS" "$CONFIG_FILE"
 
