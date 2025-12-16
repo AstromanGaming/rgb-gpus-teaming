@@ -144,7 +144,7 @@ while true; do
                 read -r -p "Press Enter to return to menu..."
                 continue
             fi
-            echo "Using existing final configuration from $FINAL_FILE"
+            echo "Using existing configuration from $FINAL_FILE"
             ;;
         2)
             echo "Configure eGPU interactively..."
@@ -204,7 +204,7 @@ while true; do
             echo "Updated eGPU configuration saved in $FINAL_FILE"
             ;;
         3)
-            echo "Regenerating embedded advisor output now..."
+            echo "Running embedded advisor output now..."
             # regenerate using embedded advisor (no sudo)
             generate_memfile_inline || {
                 echo "Embedded advisor failed. See messages above."
