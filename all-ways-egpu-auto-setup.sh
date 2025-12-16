@@ -58,7 +58,7 @@ generate_memfile_inline() {
 
     # Check lspci availability
     if ! command -v lspci >/dev/null 2>&1; then
-        printf '%s\n' "Error: lspci is not installed. Install pciutils (e.g., sudo apt install pciutils)." >&2
+        printf '%s\n' "Error: lspci is not installed. Install pciutils (e.g., apt install pciutils)." >&2
         return 1
     fi
 
@@ -75,59 +75,34 @@ generate_memfile_inline() {
         printf '%s="%s"\n' "$key" "$val" >> "$cfg"
     }
 
-    # Choose lspci mode: prefer -mm (portable), fallback to plain output
-    local use_mm=0
-    if lspci -mm >/dev/null 2>&1; then
-        use_mm=1
-    fi
-
-    # Parse controllers (VGA/3D) and audio devices
+    # Use the old/plain lspci parsing logic (the "oid" config)
     local i=1 j=1
-    if [[ $use_mm -eq 1 ]]; then
-        # -mm output: each device is a line with fields separated by tabs, last field is the human name
-        while IFS=$'\t' read -r slot cls vendor device rev progname; do
-            # cls contains class like "VGA compatible controller"
-            if printf '%s\n' "$cls" | grep -Eq "VGA|3D"; then
-                gpu_name="$progname"
-                gpu_name="${gpu_name##\"}"
-                gpu_name="${gpu_name%%\"}"
-                gpu_name="$(printf '%s' "$gpu_name" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
-                write_config "GPU_${i}_name" "$gpu_name"
-                printf 'Detected GPU_%s: %s\n' "$i" "$gpu_name"
-                ((i++))
-            elif printf '%s\n' "$cls" | grep -Eq "Audio"; then
-                audio_name="$progname"
-                audio_name="${audio_name##\"}"
-                audio_name="${audio_name%%\"}"
-                audio_name="$(printf '%s' "$audio_name" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
-                write_config "AUDIO_${j}_name" "$audio_name"
-                printf 'Detected AUDIO_%s: %s\n' "$j" "$audio_name"
-                ((j++))
-            fi
-        done < <(lspci -mm)
-    else
-        # Fallback: plain lspci output, parse lines containing VGA/3D or Audio
-        while IFS= read -r line; do
-            [[ -z "${line// /}" ]] && continue
-            if printf '%s\n' "$line" | grep -Eq "VGA|3D"; then
-                gpu_name="$(printf '%s' "$line" | sed -E 's/^[^[:space:]]+[[:space:]]+[^:]+:[[:space:]]*//')"
-                gpu_name="$(printf '%s' "$gpu_name" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
-                write_config "GPU_${i}_name" "$gpu_name"
-                printf 'Detected GPU_%s: %s\n' "$i" "$gpu_name"
-                ((i++))
-            elif printf '%s\n' "$line" | grep -Eq "Audio"; then
-                audio_name="$(printf '%s' "$line" | sed -E 's/^[^[:space:]]+[[:space:]]+[^:]+:[[:space:]]*//')"
-                audio_name="$(printf '%s' "$audio_name" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
-                write_config "AUDIO_${j}_name" "$audio_name"
-                printf 'Detected AUDIO_%s: %s\n' "$j" "$audio_name"
-                ((j++))
-            fi
-        done < <(lspci || true)
-    fi
+    while IFS= read -r line; do
+        [[ -z "${line// /}" ]] && continue
+        if printf '%s\n' "$line" | grep -Eq "VGA|3D"; then
+            gpu_name="$(printf '%s' "$line" | sed -E 's/^[^[:space:]]+[[:space:]]+[^:]+:[[:space:]]*//')"
+            gpu_name="$(printf '%s' "$gpu_name" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+            write_config "GPU_${i}_name" "$gpu_name"
+            printf 'Detected GPU_%s: %s\n' "$i" "$gpu_name"
+            ((i++))
+        fi
+    done < <(lspci || true)
+
+    while IFS= read -r line; do
+        [[ -z "${line// /}" ]] && continue
+        if printf '%s\n' "$line" | grep -Eq "Audio"; then
+            audio_name="$(printf '%s' "$line" | sed -E 's/^[^[:space:]]+[[:space:]]+[^:]+:[[:space:]]*//')"
+            audio_name="$(printf '%s' "$audio_name" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+            write_config "AUDIO_${j}_name" "$audio_name"
+            printf 'Detected AUDIO_%s: %s\n' "$j" "$audio_name"
+            ((j++))
+        fi
+    done < <(lspci || true)
 
     # If no devices found, warn and remove empty config
     if [[ $i -eq 1 && $j -eq 1 ]]; then
         printf '%s\n' "Warning: no VGA/3D or Audio devices detected by lspci." >&2
+        printf '%s\n' "Check that lspci returns output and that you have permission to run it." >&2
         rm -f "$cfg" || true
         return 1
     fi
