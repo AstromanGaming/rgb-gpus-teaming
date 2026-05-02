@@ -44,7 +44,7 @@ sudo dnf install git mesa-demos
 
 ##### Downloading Methodes
 
-###### Git ($home or /opt)
+##### Git ($home or /opt)
 ```
 git clone https://github.com/AstromanGaming/rgb-gpus-teaming.git
 cd ./rgb-gpus-teaming
@@ -54,7 +54,10 @@ cd ./rgb-gpus-teaming
 ./install-rgb-gpus-teaming.sh
 sudo pkill -KILL -u your_username
 ```
-####### OR
+###### OR
+
+###
+
 ```
 /opt/install-rgb-gpus-teaming.sh
 sudo pkill -KILL -u your_username
