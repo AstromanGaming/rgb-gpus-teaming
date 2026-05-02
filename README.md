@@ -44,24 +44,35 @@ sudo dnf install git mesa-demos
 
 ##### Downloading Methodes
 
-###### Git
+###### Git ($home or /opt)
 ```
-git clone https://github.com/AstromanGaming/RGB-GPUs-Teaming.OP.git
-cd ./RGB-GPUs-Teaming.OP
+git clone https://github.com/AstromanGaming/rgb-gpus-teaming.git
+cd ./rgb-gpus-teaming
 ```
 #### For installing:
 ```
 ./install-rgb-gpus-teaming.sh
 sudo pkill -KILL -u your_username
 ```
+####### OR
+```
+/opt/install-rgb-gpus-teaming.sh
+sudo pkill -KILL -u your_username
+
+```
+#### For reinstalling:
+```
+/opt/reinstall-rgb-gpus-teaming.sh
+sudo pkill -KILL -u your_username
+```
 #### For upgrade:
 ```
-./update-rgb-gpus-teaming.sh
+/opt/update-rgb-gpus-teaming.sh
 sudo pkill -KILL -u your_username
 ```
 #### For uninstalling:
 ```
-./uninstall-rgb-gpus-teaming.sh
+/opt/uninstall-rgb-gpus-teaming.sh
 sudo pkill -KILL -u your_username
 ```
 
@@ -99,15 +110,15 @@ sudo pkill -KILL -u your_username
 
 ###### Advisor:
 ```
-~/RGB-GPUs-Teaming.OP/advisor.sh
+/opt/rgb-gpus-teaming/advisor.sh
 ```
 ###### Manual Setup:
 ```
-~/RGB-GPUs-Teaming.OP/manual-setup.sh
+/opt/rgb-gpus-teaming/manual-setup.sh
 ```
 ###### Gnome Setup:
 ```
-~/RGB-GPUs-Teaming.OP/gnome-setup.sh
+/opt/rgb-gpus-teaming/gnome-setup.sh
 ```
 
 ##

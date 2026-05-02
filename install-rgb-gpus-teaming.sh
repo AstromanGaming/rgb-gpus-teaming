@@ -4,6 +4,12 @@ set -euo pipefail
 # install-rgb-gpus-teaming.sh
 #
 # Usage: sudo ./install-rgb-gpus-teaming.sh [--all-ways-egpu] [--help]
+#
+# Note: This script performs a system-wide install under /opt. After the
+# system-wide install completes, it will automatically remove any user-local
+# copies of the project directory named "$(basename "$PWD")" found in users'
+# home directories (/home/* and /root/*). It will never remove /opt/rgb-gpus-teaming
+# or any path outside users' home directories.
 
 SCRIPT_NAME="$(basename "$0")"
 SRC_DIR="$(pwd)"
@@ -179,8 +185,104 @@ fi
 
 shopt -u nullglob
 
+remove_user_src_dir() {
+  local target_user=""
+
+  # parse optional arg (username) - not used in automatic call
+  for a in "$@"; do
+    case "$a" in
+      *) target_user="$a" ;;
+    esac
+  done
+
+  local project_basename
+  project_basename="$(basename "$SRC_DIR")"
+
+  log "remove_user_src_dir: project basename = $project_basename"
+
+  # helper: safe remove only under /home or /root and never DEST_BASE
+  safe_rm_home() {
+    local path="$1"
+    [[ -z "$path" ]] && return 0
+    local abs
+    abs="$(readlink -f -- "$path" 2>/dev/null || true)"
+    if [[ -z "$abs" ]]; then
+      log "safe_rm_home: path not found: $path"
+      return 0
+    fi
+    # never remove DEST_BASE or anything outside /home or /root
+    if [[ -n "$(readlink -f -- "$DEST_BASE" 2>/dev/null || true)" && "$abs" == "$(readlink -f -- "$DEST_BASE" 2>/dev/null || true)"* ]]; then
+      log "Skipping removal of DEST_BASE or paths under it: $abs"
+      return 0
+    fi
+    case "$abs" in
+      /home/*|/root/*)
+        rm -rf -- "$abs" && log "Removed: $abs"
+        ;;
+      *)
+        log "Skipping removal outside home: $abs"
+        ;;
+    esac
+  }
+
+  # build list of users to process
+  local users=()
+  if [[ -n "$target_user" ]]; then
+    users=("$target_user")
+  else
+    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER:-}" != "root" ]]; then
+      users+=("$SUDO_USER")
+    fi
+    while IFS=: read -r uname _ uid _ home _; do
+      if [[ -n "$home" && -d "$home" && "$uname" != "nobody" ]] && (( uid >= 1000 )); then
+        case " ${users[*]} " in
+          *" $uname "*) ;;
+          *) users+=("$uname") ;;
+        esac
+      fi
+    done < /etc/passwd
+  fi
+
+  if (( ${#users[@]} == 0 )); then
+    log "remove_user_src_dir: aucun utilisateur cible trouvé."
+    return 0
+  fi
+
+  for u in "${users[@]}"; do
+    user_home="$(getent passwd "$u" | cut -d: -f6 || true)"
+    if [[ -z "$user_home" || ! -d "$user_home" ]]; then
+      log "remove_user_src_dir: utilisateur $u home introuvable, skip."
+      continue
+    fi
+
+    local candidate="$user_home/$project_basename"
+    if [[ -e "$candidate" ]]; then
+      # only remove if it looks like the project (best-effort checks)
+      if [[ -d "$candidate" ]] && ( [[ -e "$candidate/README.md" ]] || [[ -e "$candidate/.git" ]] || [[ -e "$candidate/nautilus-scripts" ]] || ls -A "$candidate" >/dev/null 2>&1 ); then
+        log "remove_user_src_dir: removing $candidate for user $u"
+        safe_rm_home "$candidate"
+      else
+        log "remove_user_src_dir: found $candidate but it doesn't look like the project; skipping."
+      fi
+    else
+      log "remove_user_src_dir: $candidate not present for $u"
+    fi
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Automatic call: Delete user-local copies from the SRC_DIR folder
+# (executed automatically after system installation)
+# ---------------------------------------------------------------------------
+remove_user_src_dir
+# ---------------------------------------------------------------------------
+
 echo "System-wide installation to /opt complete."
+echo "User-local copies of the project (~/$(basename "$SRC_DIR")) have been removed where found."
 echo "Desktop files installed to $DEST_DESKTOP_DIR"
 echo "Project files installed to $DEST_BASE"
 echo "If the extension does not appear, enable it in the user's GNOME session or run:"
 echo "  gnome-extensions enable $EXTENSION_UUID"
+
+exit 0
+

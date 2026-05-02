@@ -18,7 +18,9 @@ UNINSTALL_SCRIPT="$INSTALL_BASE/reinstall-rgb-gpus-teaming.sh"
 GIT_DIR="$INSTALL_BASE/.git"
 
 ALL_WAYS_EGPU=false
-VERBOSE=true   # verbose enabled by default
+
+# verbose enabled by default
+VERBOSE=true
 
 # Save original args so we can re-exec with sudo preserving them
 ORIG_ARGS=( "$@" )

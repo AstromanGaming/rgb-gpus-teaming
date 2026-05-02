@@ -29,18 +29,14 @@ Options:
   --json                   Output results as JSON
   --list                   Output compact list (one entry per line)
   -h, --help               Show this help message and exit
-
-Examples:
-  $SCRIPT_NAME --method glxinfo --timeout 3
-  $SCRIPT_NAME --method lspci --json
 EOF
 }
 
 # Parse args
 while (( "$#" )); do
   case "$1" in
-    --method) METHOD="$2"; shift 2 ;;
-    --timeout) TIMEOUT_SECS="$2"; shift 2 ;;
+    --method) METHOD="${2:-}"; shift 2 ;;
+    --timeout) TIMEOUT_SECS="${2:-}"; shift 2 ;;
     --json) OUTPUT_JSON=true; shift ;;
     --list) OUTPUT_LIST=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -48,13 +44,18 @@ while (( "$#" )); do
   esac
 done
 
-# Helpers
 log() { printf '%s\n' "$*"; }
 err() { printf '%s\n' "$*" >&2; }
 
 # Ensure /opt install exists (best-effort)
 if [[ ! -d "$INSTALL_BASE" ]]; then
   err "Warning: expected system install at $INSTALL_BASE not found"
+fi
+
+# Validate timeout is a positive integer
+if ! printf '%s' "$TIMEOUT_SECS" | grep -Eq '^[0-9]+$'; then
+  err "Invalid --timeout value: must be a non-negative integer"
+  exit 1
 fi
 
 # Interactive prompt if method not provided
@@ -78,19 +79,55 @@ fi
 declare -A seen_gpus
 results=()
 
+# Helper to append result (keeps JSON objects as strings)
+append_result() {
+  results+=("$1")
+}
+
+# If glxinfo is requested but missing, fail; if not requested and missing, fallback to lspci
 if [[ "$METHOD" == "glxinfo" ]]; then
-  if ! command -v glxinfo &>/dev/null; then
-    err "Error: glxinfo not found. Install with your distro package manager (mesa-utils / mesa-demos)"
+  if ! command -v glxinfo >/dev/null 2>&1; then
+    err "glxinfo not found."
+    # If user explicitly requested glxinfo, exit with error
+    if printf '%s' "$@" | grep -q -- '--method'; then
+      err "Error: --method glxinfo requested but glxinfo is not installed. Install mesa-utils / mesa-demos."
+      exit 1
+    else
+      # fallback to lspci
+      log "glxinfo not found; falling back to lspci"
+      METHOD="lspci"
+    fi
+  fi
+fi
+
+# Ensure timeout command exists when using glxinfo
+if [[ "$METHOD" == "glxinfo" ]]; then
+  if ! command -v timeout >/dev/null 2>&1; then
+    err "Error: 'timeout' command not found. Install coreutils or use a system that provides timeout."
     exit 1
   fi
+fi
 
+if [[ "$METHOD" == "glxinfo" ]]; then
   log "Scanning GPUs using glxinfo (DRI_PRIME 0..15) with timeout ${TIMEOUT_SECS}s"
 
   for i in $(seq 0 15); do
-    output="$(timeout "${TIMEOUT_SECS}s" env DRI_PRIME="$i" glxinfo 2>/dev/null || true)"
+    # Run glxinfo under timeout; capture both stdout and stderr
+    output="$(timeout "${TIMEOUT_SECS}s" env DRI_PRIME="$i" glxinfo 2>&1 || true)"
+    # If output is empty, skip
+    if [[ -z "$output" ]]; then
+      continue
+    fi
+
+    # Try to find a Device: line
     device_line="$(printf '%s\n' "$output" | grep -m1 'Device:' || true)"
+    if [[ -z "$device_line" ]]; then
+      # Some glxinfo versions use "Device:" or "Device:" may be absent; try "OpenGL renderer string"
+      device_line="$(printf '%s\n' "$output" | grep -m1 -E 'OpenGL renderer string|Device:' || true)"
+    fi
+
     if [[ -n "$device_line" ]]; then
-      gpu_name="$(printf '%s' "$device_line" | sed -E 's/.*Device:[[:space:]]*//; s/^[[:space:]]+|[[:space:]]+$//g')"
+      gpu_name="$(printf '%s' "$device_line" | sed -E 's/.*(Device:|OpenGL renderer string:)[[:space:]]*//; s/^[[:space:]]+|[[:space:]]+$//g')"
       [[ -z "$gpu_name" ]] && continue
       if [[ -n "${seen_gpus["$gpu_name"]:-}" ]]; then
         continue
@@ -111,10 +148,13 @@ if [[ "$METHOD" == "glxinfo" ]]; then
         suggested_cmd="DRI_PRIME=${i} your_app"
       fi
 
-      entry="{\"method\":\"glxinfo\",\"dri_prime\":${i},\"vendor\":\"${vendor}\",\"name\":\"${gpu_name}\",\"suggested\":\"${suggested_cmd}\"}"
-      results+=("$entry")
+      # Escape quotes in name for JSON safety (simple)
+      esc_name="$(printf '%s' "$gpu_name" | sed 's/"/\\"/g')"
+      esc_suggested="$(printf '%s' "$suggested_cmd" | sed 's/"/\\"/g')"
 
-      # Print human-friendly output unless JSON/list requested
+      entry="{\"method\":\"glxinfo\",\"dri_prime\":${i},\"vendor\":\"${vendor}\",\"name\":\"${esc_name}\",\"suggested\":\"${esc_suggested}\"}"
+      append_result "$entry"
+
       if [[ "$OUTPUT_JSON" != true && "$OUTPUT_LIST" != true ]]; then
         printf 'DRI_PRIME=%s → %s GPU: %s\n' "$i" "$vendor" "$gpu_name"
         printf 'Suggested launch command:\n  %s\n\n' "$suggested_cmd"
@@ -123,7 +163,7 @@ if [[ "$METHOD" == "glxinfo" ]]; then
   done
 
 elif [[ "$METHOD" == "lspci" ]]; then
-  if ! command -v lspci &>/dev/null; then
+  if ! command -v lspci >/dev/null 2>&1; then
     err "Error: lspci not found. Install with your distro package manager (pciutils)"
     exit 1
   fi
@@ -132,7 +172,6 @@ elif [[ "$METHOD" == "lspci" ]]; then
 
   while IFS= read -r line; do
     clean="$(printf '%s' "$line" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | tr -s ' ')"
-    # Example: 0000:01:00.0 VGA compatible controller: NVIDIA Corporation ...
     bus="$(printf '%s' "$clean" | awk '{print $1}')"
     desc="$(printf '%s' "$clean" | cut -d' ' -f2-)"
     vendor="Unknown"
@@ -142,8 +181,9 @@ elif [[ "$METHOD" == "lspci" ]]; then
       *Intel*|*intel*) vendor="Intel" ;;
     esac
     name="$desc"
-    entry="{\"method\":\"lspci\",\"bus\":\"${bus}\",\"vendor\":\"${vendor}\",\"name\":\"${name}\"}"
-    results+=("$entry")
+    esc_name="$(printf '%s' "$name" | sed 's/"/\\"/g')"
+    entry="{\"method\":\"lspci\",\"bus\":\"${bus}\",\"vendor\":\"${vendor}\",\"name\":\"${esc_name}\"}"
+    append_result "$entry"
 
     if [[ "$OUTPUT_JSON" != true && "$OUTPUT_LIST" != true ]]; then
       printf '%s\n' "$clean"
@@ -158,7 +198,6 @@ fi
 # Output modes
 if [[ "$OUTPUT_LIST" == true ]]; then
   for e in "${results[@]}"; do
-    # crude extraction for list mode
     if printf '%s' "$e" | grep -q '"dri_prime"'; then
       dri="$(printf '%s' "$e" | sed -n 's/.*"dri_prime":\([0-9]*\).*/\1/p')"
       name="$(printf '%s' "$e" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')"
@@ -188,7 +227,6 @@ fi
 # Pause before exit when running interactively and not producing machine-readable output
 if [[ -t 1 && "$OUTPUT_JSON" != true && "$OUTPUT_LIST" != true ]]; then
   printf '\nPress Enter to continue...'
-  # read without printing input (in case of special chars)
   IFS= read -r _
 fi
 
