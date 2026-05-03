@@ -3,6 +3,7 @@ rm -rf ./*.deb
 sudo fpm -s dir -t deb \
   -n rgb-gpus-teaming \
   -v 1.0.0-main \
+  --after-install ./postinst1.sh \
   --vendor "AstromanGaming" \
   --maintainer "Sam Bélanger <contact@astromangaming.ca>" \
   --license "MIT" \
@@ -11,6 +12,7 @@ sudo fpm -s dir -t deb \
   --architecture amd64 \
   --depends mesa-utils \
   --depends vulkan-tools \
+  ./postinst1.sh=/opt/rgb-gpus-teaming/ \
   ./advisor.desktop=/usr/share/applications/ \
   ./advisor.sh=/opt/rgb-gpus-teaming/ \
   ./gnome-launcher.sh=/opt/rgb-gpus-teaming/ \
@@ -25,7 +27,7 @@ sudo fpm -s dir -t deb \
 sudo fpm -s dir -t deb \
   -n rgb-gpus-teaming-egpu \
   -v 1.0.0-main \
-  --after-install ./postinst.sh \
+  --after-install ./postinst2.sh \
   --vendor "AstromanGaming" \
   --maintainer "Sam Bélanger <contact@astromangaming.ca>" \
   --license "MIT" \
@@ -35,6 +37,6 @@ sudo fpm -s dir -t deb \
   --depends rgb-gpus-teaming \
   --depends curl \
   --depends unzip \
-  ./postinst.sh=/opt/rgb-gpus-teaming/ \
+  ./postinst2.sh=/opt/rgb-gpus-teaming/ \
   ./all-ways-egpu-auto-setup.desktop=/usr/share/applications/ \
   ./all-ways-egpu-auto-setup.sh=/opt/rgb-gpus-teaming/
