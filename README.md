@@ -64,7 +64,8 @@ sudo pkill -KILL -u your_username
 ```
 #### For reinstalling:
 ```
-/opt/reinstall-rgb-gpus-teaming.sh
+/opt/remove-rgb-gpus-teaming.sh
+/opt/install-rgb-gpus-teaming.sh
 sudo pkill -KILL -u your_username
 ```
 #### For upgrade:
