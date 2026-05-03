@@ -38,3 +38,5 @@ sudo fpm -s dir -t deb \
   ./postinst.sh=/opt/rgb-gpus-teaming/ \
   ./all-ways-egpu-auto-setup.desktop=/usr/share/applications/ \
   ./all-ways-egpu-auto-setup.sh=/opt/rgb-gpus-teaming/
+
+chmod +x ./*.deb
