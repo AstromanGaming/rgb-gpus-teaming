@@ -82,7 +82,7 @@ else
   mkdir -p "$DEST_BASE"
   # Prefer rsync if available to avoid cp self-copy issues
   if command -v rsync >/dev/null 2>&1; then
-    rsync -a --delete --exclude='.git' --exclude='node_modules' "$SRC_DIR/" "$DEST_BASE/"
+    rsync -a --delete --exclude='node_modules' "$SRC_DIR/" "$DEST_BASE/"
   else
     cp -a "$SRC_DIR/." "$DEST_BASE/"
   fi
