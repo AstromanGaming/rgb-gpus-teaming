@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# reinstall-rgb-gpus-teaming.sh
+# remove-rgb-gpus-teaming.sh
 #
-# Usage: sudo ./reinstall-rgb-gpus-teaming.sh
+# Usage: sudo ./remove-rgb-gpus-teaming.sh
 #
 # Notes:
 #  - This script removes the GNOME extension directory, the Nautilus script,
@@ -38,7 +38,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 info ''
-info '# reinstall-rgb-gpus-teaming.sh'
+info '# remove-rgb-gpus-teaming.sh'
 info ''
 
 run_rm() {
