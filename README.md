@@ -52,7 +52,7 @@ cd ./rgb-gpus-teaming
 #### For installing:
 ```
 ./install-rgb-gpus-teaming.sh
-sudo pkill -KILL -u "$(whoami)"
+sudo pkill -KILL -u your_username
 ```
 ###### OR
 
@@ -60,23 +60,23 @@ sudo pkill -KILL -u "$(whoami)"
 
 ```
 /opt/install-rgb-gpus-teaming.sh
-sudo pkill -KILL -u "$(whoami)"
+sudo pkill -KILL -u your_username
 ```
 #### For reinstalling:
 ```
 /opt/remove-rgb-gpus-teaming.sh
 /opt/install-rgb-gpus-teaming.sh
-sudo pkill -KILL -u "$(whoami)"
+sudo pkill -KILL -u your_username
 ```
 #### For upgrade:
 ```
 /opt/update-rgb-gpus-teaming.sh
-sudo pkill -KILL -u "$(whoami)"
+sudo pkill -KILL -u your_username
 ```
 #### For uninstalling:
 ```
 /opt/uninstall-rgb-gpus-teaming.sh
-sudo pkill -KILL -u "$(whoami)"
+sudo pkill -KILL -u your_username
 ```
 
 #### For specific uses:
