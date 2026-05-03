@@ -19,8 +19,8 @@ sudo fpm -s dir -t deb \
   ./LICENSE=/opt/rgb-gpus-teaming/ \
   ./manual-setup.desktop=/usr/share/applications/ \
   ./manual-setup.sh=/opt/rgb-gpus-teaming/ \
-  ./gnome-extension=/usr/share/gnome-shell/extensions/ \
-  ./nautilus-scripts=/usr/share/nautilus/scripts/
+  ./gnome-extension/=/usr/share/gnome-shell/extensions/ \
+  ./nautilus-scripts/=/usr/share/nautilus/scripts/
 
 sudo fpm -s dir -t deb \
   -n rgb-gpus-teaming-egpu \
