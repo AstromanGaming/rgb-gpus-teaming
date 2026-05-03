@@ -10,11 +10,11 @@ set -euo pipefail
 #  - This script updates a system install under /opt/rgb-gpus-teaming.
 #  - Child scripts are executed with INSTALL_BASE as the working directory
 #    to avoid accidental copying of the caller's current directory (e.g., $HOME).
-#  - The reinstall script is invoked without extra flags for maximum compatibility.
+#  - The remove script is invoked without extra flags for maximum compatibility.
 
 INSTALL_BASE="/opt/rgb-gpus-teaming"
 INSTALL_SCRIPT="$INSTALL_BASE/install-rgb-gpus-teaming.sh"
-UNINSTALL_SCRIPT="$INSTALL_BASE/reinstall-rgb-gpus-teaming.sh"
+UNINSTALL_SCRIPT="$INSTALL_BASE/remove-rgb-gpus-teaming.sh"
 GIT_DIR="$INSTALL_BASE/.git"
 
 ALL_WAYS_EGPU=false
@@ -48,7 +48,7 @@ log() { [[ "$VERBOSE" == true ]] && printf '[%s] %s\n' "$(date +'%F %T')" "$*"; 
 info() { printf '%s\n' "$*"; }
 err() { printf '%s\n' "$*" >&2; }
 
-info "Update/reinstall for system install at $INSTALL_BASE"
+info "Update/remove for system install at $INSTALL_BASE"
 log "Options: all-ways-egpu=$ALL_WAYS_EGPU"
 
 if [[ ! -d "$INSTALL_BASE" ]]; then
@@ -118,16 +118,16 @@ run_script() {
   fi
 }
 
-# Run reinstall script if present (tolerate non-zero exit)
-# NOTE: call reinstall without passing script_flags to remain compatible with
-# older reinstall scripts that do not accept arguments.
+# Run remove script if present (tolerate non-zero exit)
+# NOTE: call remove without passing script_flags to remain compatible with
+# older remove scripts that do not accept arguments.
 if [[ -f "$UNINSTALL_SCRIPT" ]]; then
-  info 'Running reinstall script (replaces uninstall)...'
+  info 'Running remove script (replaces uninstall)...'
   if ! run_script "$UNINSTALL_SCRIPT"; then
-    err 'Warning: reinstall script returned non-zero; continuing to reinstall.'
+    err 'Warning: remove script returned non-zero; continuing to remove.'
   fi
 else
-  info "Warning: Reinstall script not found: $UNINSTALL_SCRIPT"
+  info "Warning: remove script not found: $UNINSTALL_SCRIPT"
 fi
 
 # Run install script (fail if it errors)
@@ -142,4 +142,4 @@ else
   exit 1
 fi
 
-info "Update and reinstall complete for $INSTALL_BASE"
+info "Update and remove complete for $INSTALL_BASE"
