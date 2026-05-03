@@ -1,3 +1,5 @@
+rm -rf ./*.deb
+
 sudo fpm -s dir -t deb \
   -n rgb-gpus-teaming \
   -v 1.0.0-main \
