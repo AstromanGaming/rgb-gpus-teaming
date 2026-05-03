@@ -1,6 +1,7 @@
 sudo fpm -s dir -t deb \
   -n rgb-gpus-teaming \
   -v 1.0.0-main \
+  --vendor "AstromanGaming" \
   --maintainer "Sam Bélanger <contact@astromangaming.ca>" \
   --license "MIT" \
   --url "https://github.com/AstromanGaming/rgb-gpus-teaming" \
@@ -23,6 +24,7 @@ sudo fpm -s dir -t deb \
   -n rgb-gpus-teaming-egpu \
   -v 1.0.0-main \
   --after-install ./postinst.sh \
+  --vendor "AstromanGaming" \
   --maintainer "Sam Bélanger <contact@astromangaming.ca>" \
   --license "MIT" \
   --url "https://github.com/AstromanGaming/rgb-gpus-teaming" \
