@@ -1,5 +1,5 @@
 [Desktop Entry]
-Name=All-Ways-eGPU (Auto mode)
+Name=All-Ways-eGPU (Auto)
 GenericName=Wayland eGPU auto script
 Comment=Auto script for setting eGPU as primary for Wayland desktops
 Exec=/opt/rgb-gpus-teaming/all-ways-egpu-auto-setup.sh %F
