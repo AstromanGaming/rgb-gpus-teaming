@@ -130,12 +130,15 @@ fi
 # Interactive menu
 while true; do
     clear
-    echo "===== Configuration Menu ====="
+    echo "---------------------------------"
+    echo "All-Ways-eGPU (Auto) Main Menu"
+    echo "---------------------------------"
     echo "1) Use existing memory"
     echo "2) Configure eGPU"
-    echo "3) Embedded advisor output"
-    echo "4) Exit"
-    read -r -p "Enter choice [1/2/3/4]: " choice
+    echo "3) Quick advisor output"
+    echo "m) Manual Mode"
+    echo "q) Exit"
+    read -r -p "Enter choice [1-3]: " choice
 
     case "$choice" in
         1)
@@ -204,15 +207,19 @@ while true; do
             echo "Updated eGPU configuration saved in $FINAL_FILE"
             ;;
         3)
-            echo "Running embedded advisor output now..."
+            echo "Running quick advisor output now..."
             # regenerate using embedded advisor (no sudo)
             generate_memfile_inline || {
-                echo "Embedded advisor failed. See messages above."
+                echo "Quick advisor failed. See messages above."
             }
             read -r -p "Done. Press Enter to return to menu..."
             continue
             ;;
-        4)
+        m)
+            sudo sh -c "all-ways-egpu"
+            break
+            ;;
+        q)
             echo "Exiting..."
             break
             ;;
