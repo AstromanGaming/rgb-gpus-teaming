@@ -15,9 +15,9 @@ rm -f "$SCRIPT_DIR"/*.deb
 echo "[2/4] Building main package..."
 sudo fpm -s dir -t deb \
   -n rgb-gpus-teaming \
-  -v 1.0.0-main \
-  --after-remove "$SCRIPT_DIR/prerm1.sh" \
-  --after-install "$SCRIPT_DIR/postinst1.sh" \
+  -v 1.0.1-main \
+  --after-remove "$SCRIPT_DIR/.prerm1.sh" \
+  --after-install "$SCRIPT_DIR/.postinst1.sh" \
   --vendor "AstromanGaming" \
   --maintainer "Sam Bélanger <contact@astromangaming.ca>" \
   --license "MIT" \
@@ -26,8 +26,8 @@ sudo fpm -s dir -t deb \
   --architecture amd64 \
   --depends mesa-utils \
   --depends vulkan-tools \
-  "$SCRIPT_DIR/prerm1.sh=/opt/rgb-gpus-teaming/" \
-  "$SCRIPT_DIR/postinst1.sh=/opt/rgb-gpus-teaming/" \
+  "$SCRIPT_DIR/.prerm1.sh=/opt/rgb-gpus-teaming/" \
+  "$SCRIPT_DIR/.postinst1.sh=/opt/rgb-gpus-teaming/" \
   "$SCRIPT_DIR/advisor.desktop=/usr/share/applications/" \
   "$SCRIPT_DIR/advisor.sh=/opt/rgb-gpus-teaming/" \
   "$SCRIPT_DIR/gnome-launcher.sh=/opt/rgb-gpus-teaming/" \
@@ -42,9 +42,9 @@ sudo fpm -s dir -t deb \
 echo "[3/4] Building eGPU addon package..."
 sudo fpm -s dir -t deb \
   -n rgb-gpus-teaming-egpu \
-  -v 1.0.0-main \
-  --before-remove "$SCRIPT_DIR/prerm2.sh" \
-  --after-install "$SCRIPT_DIR/postinst2.sh" \
+  -v 1.0.1-main \
+  --before-remove "$SCRIPT_DIR/.prerm2.sh" \
+  --after-install "$SCRIPT_DIR/.postinst2.sh" \
   --vendor "AstromanGaming" \
   --maintainer "Sam Bélanger <contact@astromangaming.ca>" \
   --license "MIT" \
@@ -54,8 +54,8 @@ sudo fpm -s dir -t deb \
   --depends rgb-gpus-teaming \
   --depends curl \
   --depends unzip \
-  "$SCRIPT_DIR/prerm2.sh=/opt/rgb-gpus-teaming/" \
-  "$SCRIPT_DIR/postinst2.sh=/opt/rgb-gpus-teaming/" \
+  "$SCRIPT_DIR/.prerm2.sh=/opt/rgb-gpus-teaming/" \
+  "$SCRIPT_DIR/.postinst2.sh=/opt/rgb-gpus-teaming/" \
   "$SCRIPT_DIR/all-ways-egpu-auto-setup.desktop=/usr/share/applications/" \
   "$SCRIPT_DIR/all-ways-egpu-auto-setup.sh=/opt/rgb-gpus-teaming/"
 
