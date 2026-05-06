@@ -158,7 +158,7 @@ sudo pkill -KILL -u "$(whoami)"
 ##
 
 ### Notes
-- ```sudo pkill -KILL -u your_username``` is important for refresh the new or the upgraded installation!
+- ```sudo pkill -KILL -u "$(whoami)"``` is important for refresh the new or the upgraded installation!
 - With the GUI, just click “Sign out”.
 
 ##
