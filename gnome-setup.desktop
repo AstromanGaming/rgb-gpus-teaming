@@ -3,8 +3,12 @@ Name=RGB GPUs Teaming (GNOME)
 Comment=Configure applications with RGB GPUs Teaming
 Exec=/opt/rgb-gpus-teaming/gnome-setup.sh %F
 TryExec=/opt/rgb-gpus-teaming/gnome-setup.sh
-Icon=system-component-addon
+Icon=/opt/rgb-gpus-teaming/icon/gnome-setup.ico
 Terminal=true
 Type=Application
 Categories=Utility;
 StartupNotify=true
+
+[Desktop Action sudo]
+Name=Run an root
+Exec=sudo /opt/rgb-gpus-teaming/gnome-setup.sh

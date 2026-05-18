@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=RGB GPUs Teaming (GNOME) [Vulkan]
+Comment=Configure applications with RGB GPUs Teaming on Vulkan (Experimental)
+Exec=/opt/rgb-gpus-teaming/gnome-setup-vulkan.sh %F
+TryExec=/opt/rgb-gpus-teaming/gnome-setup-vulkan.sh
+Icon=/opt/rgb-gpus-teaming/icon/gnome-setup-vulkan.ico
+Terminal=true
+Type=Application
+Categories=Utility;
+StartupNotify=true
+
+[Desktop Action sudo]
+Name=Run an root
+Exec=sudo /opt/rgb-gpus-teaming/gnome-setup-vulkan.sh

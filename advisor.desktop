@@ -3,8 +3,20 @@ Name=RGB GPUs Teaming (Advisor)
 Comment=Help to find GPUs for the RGB GPUs Teaming scripts
 Exec=/opt/rgb-gpus-teaming/advisor.sh %F
 TryExec=/opt/rgb-gpus-teaming/advisor.sh
-Icon=help-contents
+Icon=/opt/rgb-gpus-teaming/icon/advisor.ico
 Terminal=true
 Type=Application
 Categories=Utility;
 StartupNotify=true
+
+[Desktop Action switcherooctl]
+Name=Run switcherooctl method
+Exec=/opt/rgb-gpus-teaming/advisor.sh --method switcherooctl
+
+[Desktop Action glxinfo]
+Name=Run glxinfo method
+Exec=/opt/rgb-gpus-teaming/advisor.sh --method glxinfo
+
+[Desktop Action lspci]
+Name=Run lspci method
+Exec=/opt/rgb-gpus-teaming/advisor.sh --method lspci

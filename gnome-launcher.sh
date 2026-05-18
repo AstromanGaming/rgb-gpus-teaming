@@ -2,29 +2,24 @@
 set -euo pipefail
 
 # gnome-launcher.sh
-# Launch a command or executable with GPU offload, using per-user config when available.
-# Script lives in /opt and is intended to be executable by normal users.
+# Usage:
+#   gnome-launcher.sh "<command-or-path-or-desktopId>" [as-root]
+# If second arg is "as-root", attempt to elevate via pkexec or sudo.
 
 INSTALL_BASE="/opt/rgb-gpus-teaming"
 SYSTEM_MEM_FILE="$INSTALL_BASE/config/gpu_launcher_gnome_config"
 
-# Determine the target user whose config we should read:
-# - If invoked via sudo, SUDO_USER is the real user; otherwise use current user.
 TARGET_USER="${SUDO_USER:-$USER}"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6 || true)"
 
-# Per-user config path (XDG_CONFIG_HOME if set for that user, else ~/.config)
 USER_CONFIG_DIR=""
 USER_MEM_FILE=""
 
 if [[ -n "$TARGET_HOME" ]]; then
-  # If the target user has XDG_CONFIG_HOME set in their environment, we can't reliably read it here.
-  # Use the conventional path under their home.
   USER_CONFIG_DIR="$TARGET_HOME/.config/rgb-gpus-teaming"
   USER_MEM_FILE="$USER_CONFIG_DIR/gpu_launcher_gnome_config"
 fi
 
-# Load configuration: prefer per-user config, fall back to system config
 GPU_MODE=""
 DRI_PRIME=""
 
@@ -37,75 +32,166 @@ elif [[ -f "$SYSTEM_MEM_FILE" ]]; then
 fi
 
 input="${1:-}"
+elevate_flag="${2:-}"
+
+log() {
+  logger -t rgb-gpus-teaming "$*"
+}
+
 if [[ -z "$input" ]]; then
-  echo "Usage: $0 \"<command-or-path>\""
+  echo "Usage: $0 \"<command-or-path-or-desktopId>\" [as-root]"
   exit 2
 fi
 
-# If input is a file path, resolve it
+# Normalize input
 if [[ -f "$input" ]]; then
   input="$(realpath "$input")"
 fi
 
-get_common_terminal() {
-  for term in gnome-terminal xfce4-terminal konsole tilix x-terminal-emulator alacritty kitty urxvt terminator xterm; do
-    if type -P "$term" >/dev/null 2>&1; then
-      echo "$term"
-      return
-    fi
-  done
-  echo "xterm"
-}
-
-# Run a command string with the appropriate GPU environment
-launch_with_gpu() {
-  local cmd="$1"
-
-  # Choose env based on GPU_MODE
-  if [[ "${GPU_MODE:-}" == "NVIDIA_RENDER_OFFLOAD" || "${GPU_MODE:-}" == "NVIDIA" ]]; then
-    # Render offload env
-    env __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia bash -c "$cmd"
+get_gpu_wrapper_cmd() {
+  if command -v prime-run >/dev/null 2>&1; then
+    echo "prime-run"
   else
-    # DRI_PRIME mode (default to 1 if not set)
-    local dpi="${DRI_PRIME:-1}"
-    env DRI_PRIME="$dpi" bash -c "$cmd"
+    echo "env DRI_PRIME=${DRI_PRIME:-1}"
   fi
 }
 
-launch_in_terminal() {
-  local terminal="$1"
-  local executable="$2"
+# Helper to run a command array, optionally elevated
+run_cmd_array() {
+  local -n arr=$1
+  local elevated="$2"
+  local wrapper
+  wrapper="$(get_gpu_wrapper_cmd)"
+
+  if [[ "$elevated" == "yes" ]]; then
+    # Try pkexec first (preferred for GUI elevation)
+    if command -v pkexec >/dev/null 2>&1; then
+      log "Elevating with pkexec: ${arr[*]}"
+      if [[ "$wrapper" == "prime-run" ]]; then
+        pkexec --disable-internal-agent env DISPLAY="$DISPLAY" XAUTHORITY="${XAUTHORITY:-}" prime-run "${arr[@]}" &
+      else
+        pkexec --disable-internal-agent env DRI_PRIME="${DRI_PRIME:-1}" "${arr[@]}" &
+      fi
+      disown
+      return 0
+    fi
+
+    # Fallback to sudo
+    if command -v sudo >/dev/null 2>&1; then
+      log "Elevating with sudo: ${arr[*]}"
+      if [[ "$wrapper" == "prime-run" ]]; then
+        sudo prime-run "${arr[@]}" &
+      else
+        sudo env DRI_PRIME="${DRI_PRIME:-1}" "${arr[@]}" &
+      fi
+      disown
+      return 0
+    fi
+
+    log "No pkexec or sudo available for elevation"
+    return 1
+  else
+    # Non-elevated run
+    if [[ "$wrapper" == "prime-run" ]]; then
+      prime-run "${arr[@]}" & disown
+    else
+      env DRI_PRIME="${DRI_PRIME:-1}" "${arr[@]}" & disown
+    fi
+    return 0
+  fi
+}
+
+# If input is a .desktop entry
+if [[ "$input" == *.desktop ]]; then
+  DESKTOP_ID="${input%.desktop}"
+  log "Requested desktop launch: ${DESKTOP_ID} (elevate=${elevate_flag})"
+
+  # Prefer gtk-launch
+  if command -v gtk-launch >/dev/null 2>&1; then
+    CMD=("gtk-launch" "${DESKTOP_ID}")
+    if [[ "$elevate_flag" == "as-root" ]]; then
+      run_cmd_array CMD yes || { echo "Elevation failed"; exit 1; }
+    else
+      run_cmd_array CMD no || { echo "Launch failed"; exit 1; }
+    fi
+    exit 0
+  fi
+
+  # Try flatpak run if flatpak exists (best-effort)
+  if command -v flatpak >/dev/null 2>&1; then
+    CMD=("flatpak" "run" "${DESKTOP_ID}")
+    if [[ "$elevate_flag" == "as-root" ]]; then
+      run_cmd_array CMD yes || true
+    else
+      run_cmd_array CMD no || true
+    fi
+    # continue to other fallbacks if flatpak run didn't work
+  fi
+
+  # Fallback to gio open
+  if command -v gio >/dev/null 2>&1; then
+    CMD=("gio" "open" "desktop:${DESKTOP_ID}")
+    if [[ "$elevate_flag" == "as-root" ]]; then
+      run_cmd_array CMD yes || { echo "Elevation failed"; exit 1; }
+    else
+      run_cmd_array CMD no || { echo "Launch failed"; exit 1; }
+    fi
+    exit 0
+  fi
+
+  log "Failed to launch desktop entry ${DESKTOP_ID}: no gtk-launch, flatpak or gio available"
+  echo "Error: cannot launch desktop entry ${DESKTOP_ID} on this system" >&2
+  exit 1
+fi
+
+# If input is an executable path and executable, run it in a terminal
+if [[ -f "$input" && -x "$input" ]]; then
+  get_common_terminal() {
+    for term in gnome-terminal xfce4-terminal konsole tilix x-terminal-emulator alacritty kitty urxvt terminator xterm; do
+      if type -P "$term" >/dev/null 2>&1; then
+        echo "$term"
+        return
+      fi
+    done
+    echo "xterm"
+  }
+
+  terminal="$(get_common_terminal)"
+  log "Launching executable in terminal: $input via $terminal (elevate=${elevate_flag})"
 
   case "$terminal" in
     gnome-terminal|xfce4-terminal|x-terminal-emulator|konsole|tilix|kitty)
-      launch_with_gpu "$terminal -- bash -c '$executable; exec bash'"
+      CMD=("$terminal" "--" "bash" "-c" "$input; exec bash")
       ;;
     alacritty|urxvt|xterm|terminator)
-      launch_with_gpu "$terminal -e \"$executable\""
+      CMD=("$terminal" "-e" "$input")
       ;;
     *)
-      # Fallback: try to run directly
-      launch_with_gpu "$executable"
+      CMD=("$input")
       ;;
   esac
-}
 
-# If input is an executable file, open it in a terminal
-if [[ -f "$input" && -x "$input" ]]; then
-  terminal="$(get_common_terminal)"
-  echo "Launching executable in terminal: $input via $terminal"
-  launch_in_terminal "$terminal" "$input"
+  if [[ "$elevate_flag" == "as-root" ]]; then
+    run_cmd_array CMD yes || { echo "Elevation failed"; exit 1; }
+  else
+    run_cmd_array CMD no || { echo "Launch failed"; exit 1; }
+  fi
   exit 0
 fi
 
-# If the first word is an available command, run it with GPU env
+# If first token is an available command, run it with GPU env
 first_word="${input%% *}"
 if type -P "$first_word" >/dev/null 2>&1; then
-  echo "Launching command: $input"
-  # Run in background so launcher returns quickly
-  launch_with_gpu "$input" &
+  log "Launching command: $input (elevate=${elevate_flag})"
+  read -r -a ARGS <<< "$input"
+  if [[ "$elevate_flag" == "as-root" ]]; then
+    run_cmd_array ARGS yes || { echo "Elevation failed"; exit 1; }
+  else
+    run_cmd_array ARGS no || { echo "Launch failed"; exit 1; }
+  fi
   exit 0
 fi
 
-echo "Error: '$input' is not a valid executable or command."
+log "Error: '$input' is not a valid executable, command, or desktop entry"
+echo "Error: '$input' is not a valid executable, command, or desktop entry" >&2
 exit 1

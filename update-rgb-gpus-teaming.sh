@@ -4,20 +4,15 @@ set -euo pipefail
 # update-rgb-gpus-teaming.sh
 #
 # Usage:
-#   sudo ./update-rgb-gpus-teaming.sh [--all-ways-egpu] [--help]
-#
-# Notes:
-#  - This script updates a system install under /opt/rgb-gpus-teaming.
-#  - Child scripts are executed with INSTALL_BASE as the working directory
-#    to avoid accidental copying of the caller's current directory (e.g., $HOME).
-#  - The remove script is invoked without extra flags for maximum compatibility.
+#   sudo ./update-rgb-gpus-teaming.sh [--all-ways-egpu] [-v|--vulkan] [-h|--help]
 
 INSTALL_BASE="/opt/rgb-gpus-teaming"
 INSTALL_SCRIPT="$INSTALL_BASE/install-rgb-gpus-teaming.sh"
-UNINSTALL_SCRIPT="$INSTALL_BASE/remove-rgb-gpus-teaming.sh"
+REMOVE_SCRIPT="$INSTALL_BASE/remove-rgb-gpus-teaming.sh"
 GIT_DIR="$INSTALL_BASE/.git"
 
 ALL_WAYS_EGPU=false
+VULKAN_INSTALL=false
 
 # verbose enabled by default
 VERBOSE=true
@@ -31,6 +26,7 @@ Usage: $(basename "$0") [options]
 
 Options:
   --all-ways-egpu    Pass this flag to the install script to include the all-ways-egpu addon.
+  -v, --vulkan       Pass this flag to the install script to include the Vulkan experimental.
   -h, --help         Show this help message and exit.
 EOF
 }
@@ -39,6 +35,7 @@ EOF
 while (( "$#" )); do
   case "$1" in
     --all-ways-egpu) ALL_WAYS_EGPU=true; shift ;;
+    -v|--vulkan) VULKAN_INSTALL=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'Warning: unknown argument %q (ignored)\n' "$1" >&2; shift ;;
   esac
@@ -50,6 +47,7 @@ err() { printf '%s\n' "$*" >&2; }
 
 info "Update/remove for system install at $INSTALL_BASE"
 log "Options: all-ways-egpu=$ALL_WAYS_EGPU"
+log "Options: vulkan=$VULKAN_INSTALL"
 
 if [[ ! -d "$INSTALL_BASE" ]]; then
   err "Error: system install directory not found: $INSTALL_BASE"
@@ -76,6 +74,7 @@ fi
 # Build flags to pass to install script only
 script_flags=()
 [[ "$ALL_WAYS_EGPU" == true ]] && script_flags+=(--all-ways-egpu)
+[[ "$VULKAN_INSTALL" == true ]] && script_flags+=(--vulkan)
 
 # Helper to run a script (already root) with logging and diagnostics
 # Runs the child script with INSTALL_BASE as the working directory to avoid
@@ -121,13 +120,13 @@ run_script() {
 # Run remove script if present (tolerate non-zero exit)
 # NOTE: call remove without passing script_flags to remain compatible with
 # older remove scripts that do not accept arguments.
-if [[ -f "$UNINSTALL_SCRIPT" ]]; then
-  info 'Running remove script (replaces uninstall)...'
-  if ! run_script "$UNINSTALL_SCRIPT"; then
+if [[ -f "$REMOVE_SCRIPT" ]]; then
+  info 'Running remove script (replaces REMOVE)...'
+  if ! run_script "$REMOVE_SCRIPT"; then
     err 'Warning: remove script returned non-zero; continuing to remove.'
   fi
 else
-  info "Warning: remove script not found: $UNINSTALL_SCRIPT"
+  info "Warning: remove script not found: $REMOVE_SCRIPT"
 fi
 
 # Run install script (fail if it errors)

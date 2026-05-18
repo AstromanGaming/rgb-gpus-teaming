@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=RGB GPUs Teaming (Advisor) [Vulkan]
+Comment=Help to find GPUs for the RGB GPUs Teaming scripts with Vulkan (Experimental)
+Exec=/opt/rgb-gpus-teaming/advisor-vulkan.sh %F
+TryExec=/opt/rgb-gpus-teaming/advisor-vulkan.sh
+Icon=/opt/rgb-gpus-teaming/icon/advisor-vulkan.ico
+Terminal=true
+Type=Application
+Categories=Utility;
+StartupNotify=true

@@ -3,8 +3,12 @@ Name=RGB GPUs Teaming
 Comment=Launch applications with RGB GPUs Teaming
 Exec=/opt/rgb-gpus-teaming/manual-setup.sh %F
 TryExec=/opt/rgb-gpus-teaming/manual-setup.sh
-Icon=jockey
+Icon=/opt/rgb-gpus-teaming/icon/manual-setup.ico
 Terminal=true
 Type=Application
 Categories=Utility;
 StartupNotify=true
+
+[Desktop Action sudo]
+Name=Run an root
+Exec=sudo /opt/rgb-gpus-teaming/manual-setup.sh

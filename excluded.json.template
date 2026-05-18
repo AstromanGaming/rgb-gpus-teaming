@@ -1,0 +1,12 @@
+{
+  "excluded": [
+    "advisor.desktop",
+    "gnome-setup.desktop",
+    "manual-setup.desktop",
+    "all-ways-egpu-auto-setup.desktop",
+    "all-ways-egpu.desktop",
+    "gnome-setup-vulkan.desktop",
+    "advisor-vulkan.desktop",
+    "manual-setup-vulkan.desktop"
+  ]
+}

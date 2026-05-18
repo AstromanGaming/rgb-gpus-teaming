@@ -4,11 +4,11 @@ set -euo pipefail
 # System-wide GPU detection helper
 #
 # Usage:
-#   sudo /opt/rgb-gpus-teaming/advisor.sh [--method glxinfo|lspci] [--timeout N] [--json] [--list] [--help]
+#   sudo /opt/rgb-gpus-teaming/advisor.sh [--method switcherooctl|glxinfo|lspci] [--timeout N] [--json] [--list] [--help]
 #
 # Notes:
 # - Designed for system-wide installs under /opt/rgb-gpus-teaming
-# - If run without sudo it still works; no files are modified
+# - If run without sudo it still works; no files are modified (except when switcherooctl method requests starting/stopping a service via sudo)
 # - --json prints machine-readable output; --list prints a compact list (one entry per line)
 
 INSTALL_BASE="/opt/rgb-gpus-teaming"
@@ -18,29 +18,49 @@ METHOD=""
 TIMEOUT_SECS=2
 OUTPUT_JSON=false
 OUTPUT_LIST=false
+EXPLICIT_METHOD=false
 
 usage() {
   cat <<EOF
 Usage: $SCRIPT_NAME [options]
 
 Options:
-  --method glxinfo|lspci   Choose detection method (interactive fallback if omitted)
-  --timeout N              Timeout seconds for glxinfo probes (default: 2)
-  --json                   Output results as JSON
-  --list                   Output compact list (one entry per line)
-  -h, --help               Show this help message and exit
+  --method switcherooctl|glxinfo|lspci   Choose detection method (interactive fallback if omitted)
+  --timeout N                            Timeout seconds for glxinfo probes (default: 2)
+  --json                                  Output results as JSON
+  --list                                  Output compact list (one entry per line)
+  -h, --help                              Show this help message and exit
 EOF
 }
 
 # Parse args
 while (( "$#" )); do
   case "$1" in
-    --method) METHOD="${2:-}"; shift 2 ;;
-    --timeout) TIMEOUT_SECS="${2:-}"; shift 2 ;;
-    --json) OUTPUT_JSON=true; shift ;;
-    --list) OUTPUT_LIST=true; shift ;;
-    -h|--help) usage; exit 0 ;;
-    *) echo "Warning: unknown argument '$1' (ignored)"; shift ;;
+    --method)
+      METHOD="${2:-}"
+      EXPLICIT_METHOD=true
+      shift 2
+      ;;
+    --timeout)
+      TIMEOUT_SECS="${2:-}"
+      shift 2
+      ;;
+    --json)
+      OUTPUT_JSON=true
+      shift
+      ;;
+    --list)
+      OUTPUT_LIST=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Warning: unknown argument '$1' (ignored)"
+      shift
+      ;;
   esac
 done
 
@@ -62,12 +82,14 @@ fi
 if [[ -z "$METHOD" ]]; then
   if [[ -t 0 ]]; then
     echo "Choose detection method:"
-    echo "1) glxinfo (render offload / DRI_PRIME detection)"
-    echo "2) lspci (PCI device list)"
-    read -r -p "Enter choice [1/2]: " choice
+    echo "1) switcherooctl (kernel switcheroo / hybrid GPU clients)"
+    echo "2) glxinfo (render offload / DRI_PRIME detection)"
+    echo "3) lspci (PCI device list)"
+    read -r -p "Enter choice [1/2/3]: " choice
     case "$choice" in
-      1) METHOD="glxinfo" ;;
-      2) METHOD="lspci" ;;
+      1) METHOD="switcherooctl" ;;
+      2) METHOD="glxinfo" ;;
+      3) METHOD="lspci" ;;
       *) err "Invalid choice"; exit 1 ;;
     esac
   else
@@ -84,48 +106,159 @@ append_result() {
   results+=("$1")
 }
 
-# If glxinfo is requested but missing, fail; if not requested and missing, fallback to lspci
+# -------------------------
+# Vendor detection helper
+# -------------------------
+detect_vendor_from_text() {
+  local txt="$1"
+  local vendor="Unknown"
+  local ltxt
+  ltxt="$(printf '%s' "$txt" | tr '[:upper:]' '[:lower:]')"
+  if printf '%s' "$ltxt" | grep -Eiq '\bnvidia\b|\bgeforce\b|\brtx\b|\bga10\b|\bnvrm\b'; then
+    vendor="NVIDIA"
+  elif printf '%s' "$ltxt" | grep -Eiq '\bintel\b|\biris\b|\buhd\b|\btigerlake\b|\bi915\b'; then
+    vendor="Intel"
+  elif printf '%s' "$ltxt" | grep -Eiq '\bradeon\b|\bamdgpu\b|\bamd\b|\bati\b'; then
+    vendor="AMD"
+  fi
+  printf '%s' "$vendor"
+}
+
+# -------------------------
+# switcherooctl helpers (no suggested commands)
+# -------------------------
+scan_switcherooctl() {
+  local out source_tag
+  if command -v switcherooctl >/dev/null 2>&1; then
+    out="$(switcherooctl list 2>&1 || switcherooctl status 2>&1 || true)"
+    source_tag="switcherooctl_tool"
+  elif [[ -r "/sys/kernel/debug/switcheroo/clients" ]]; then
+    out="$(cat /sys/kernel/debug/switcheroo/clients 2>&1 || true)"
+    source_tag="switcheroo_debugfs"
+  else
+    err "switcherooctl not available and /sys/kernel/debug/switcheroo/clients not readable"
+    return 3
+  fi
+
+  detect_vendor_from_block() {
+    local block="$1"
+    local lblock
+    lblock="$(printf '%s' "$block" | tr '[:upper:]' '[:lower:]')"
+    if printf '%s' "$lblock" | grep -qi 'vk_loader_drivers_select=.*nvidia'; then
+      printf 'NVIDIA' && return
+    fi
+    if printf '%s' "$lblock" | grep -qi 'vk_loader_drivers_select=.*intel'; then
+      printf 'Intel' && return
+    fi
+    if printf '%s' "$lblock" | grep -qi '__nv_prime_render_offload\|__glx_vendor_library_name=nvidia\|nv_prime'; then
+      printf 'NVIDIA' && return
+    fi
+    if printf '%s' "$lblock" | grep -qi '\bnvidia\b|\bgeforce\b|\brtx\b'; then
+      printf 'NVIDIA' && return
+    fi
+    if printf '%s' "$lblock" | grep -qi '\bintel\b|\biris\b|\buhd\b|\btigerlake\b'; then
+      printf 'Intel' && return
+    fi
+    if printf '%s' "$lblock" | grep -qi '\bradeon\b|\bamdgpu\b|\bamd\b'; then
+      printf 'AMD' && return
+    fi
+    printf 'Unknown'
+  }
+
+  # Group lines into blocks per client
+  local block line
+  block=""
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="$(printf '%s' "$line" | sed -E 's/\r$//')"
+    if printf '%s' "$line" | grep -Eq '^[[:space:]]*[0-9]+:|^[[:space:]]*Device:'; then
+      if [[ -n "$block" ]]; then
+        process_switcheroo_block "$block" "$source_tag"
+      fi
+      block="$line"$'\n'
+    else
+      block+="$line"$'\n'
+    fi
+  done <<<"$out"
+  if [[ -n "$block" ]]; then
+    process_switcheroo_block "$block" "$source_tag"
+  fi
+
+  return 0
+}
+
+process_switcheroo_block() {
+  local block="$1" source_tag="$2"
+  block="$(printf '%s' "$block" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+  [[ -z "$block" ]] && return
+
+  local name pci env short vendor esc_raw esc_short esc_pci esc_vendor entry
+
+  name="$(printf '%s' "$block" | grep -m1 -i 'Name:' | sed -E 's/^[[:space:]]*Name:[[:space:]]*//I' || true)"
+  pci="$(printf '%s' "$block" | grep -oEi '[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]\.[0-9]' || true)"
+  env="$(printf '%s' "$block" | grep -m1 -i 'Environment:' | sed -E 's/^[[:space:]]*Environment:[[:space:]]*//I' || true)"
+
+  if [[ -n "$name" ]]; then
+    short="$name"
+  elif [[ -n "$pci" ]]; then
+    short="$pci"
+  else
+    short="$(printf '%s' "$block" | head -n1 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  fi
+
+  vendor="$(detect_vendor_from_block "$block")"
+
+  if [[ -n "${seen_gpus["$block"]:-}" ]]; then
+    return
+  fi
+  seen_gpus["$block"]=1
+
+  esc_raw="$(printf '%s' "$block" | sed 's/"/\\"/g' | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g')"
+  esc_short="$(printf '%s' "$short" | sed 's/"/\\"/g')"
+  esc_pci="$(printf '%s' "$pci" | sed 's/"/\\"/g')"
+  esc_vendor="$(printf '%s' "$vendor" | sed 's/"/\\"/g')"
+
+  entry="{\"method\":\"switcherooctl\",\"source\":\"${source_tag}\",\"short\":\"${esc_short}\",\"pci\":\"${esc_pci}\",\"vendor\":\"${esc_vendor}\",\"raw\":\"${esc_raw}\"}"
+  append_result "$entry"
+
+  if [[ "$OUTPUT_JSON" != true && "$OUTPUT_LIST" != true ]]; then
+    printf 'switcheroo client: %s\n' "$short"
+    [[ -n "$pci" ]] && printf '  PCI: %s\n' "$pci"
+    printf '  Vendor guess: %s\n' "$vendor"
+    printf '  Raw block:\n%s\n\n' "$block"
+  fi
+}
+
+# -------------------------
+# glxinfo scanning
+# -------------------------
 if [[ "$METHOD" == "glxinfo" ]]; then
   if ! command -v glxinfo >/dev/null 2>&1; then
     err "glxinfo not found."
-    # If user explicitly requested glxinfo, exit with error
-    if printf '%s' "$@" | grep -q -- '--method'; then
+    if [[ "$EXPLICIT_METHOD" == true ]]; then
       err "Error: --method glxinfo requested but glxinfo is not installed. Install mesa-utils / mesa-demos."
       exit 1
     else
-      # fallback to lspci
       log "glxinfo not found; falling back to lspci"
       METHOD="lspci"
     fi
   fi
 fi
 
-# Ensure timeout command exists when using glxinfo
 if [[ "$METHOD" == "glxinfo" ]]; then
   if ! command -v timeout >/dev/null 2>&1; then
     err "Error: 'timeout' command not found. Install coreutils or use a system that provides timeout."
     exit 1
   fi
-fi
 
-if [[ "$METHOD" == "glxinfo" ]]; then
   log "Scanning GPUs using glxinfo (DRI_PRIME 0..15) with timeout ${TIMEOUT_SECS}s"
 
   for i in $(seq 0 15); do
-    # Run glxinfo under timeout; capture both stdout and stderr
     output="$(timeout "${TIMEOUT_SECS}s" env DRI_PRIME="$i" glxinfo 2>&1 || true)"
-    # If output is empty, skip
     if [[ -z "$output" ]]; then
       continue
     fi
 
-    # Try to find a Device: line
-    device_line="$(printf '%s\n' "$output" | grep -m1 'Device:' || true)"
-    if [[ -z "$device_line" ]]; then
-      # Some glxinfo versions use "Device:" or "Device:" may be absent; try "OpenGL renderer string"
-      device_line="$(printf '%s\n' "$output" | grep -m1 -E 'OpenGL renderer string|Device:' || true)"
-    fi
-
+    device_line="$(printf '%s\n' "$output" | grep -m1 -E 'OpenGL renderer string|Device:' || true)"
     if [[ -n "$device_line" ]]; then
       gpu_name="$(printf '%s' "$device_line" | sed -E 's/.*(Device:|OpenGL renderer string:)[[:space:]]*//; s/^[[:space:]]+|[[:space:]]+$//g')"
       [[ -z "$gpu_name" ]] && continue
@@ -134,35 +267,25 @@ if [[ "$METHOD" == "glxinfo" ]]; then
       fi
       seen_gpus["$gpu_name"]=1
 
-      vendor="Unknown"
-      case "$gpu_name" in
-        *NVIDIA*|*nvidia*) vendor="NVIDIA" ;;
-        *AMD*|*Radeon*|*radeon*) vendor="AMD" ;;
-        *Intel*|*intel*) vendor="Intel" ;;
-      esac
+      vendor="$(detect_vendor_from_text "$gpu_name")"
 
-      suggested_cmd=""
-      if [[ "$vendor" == "NVIDIA" ]]; then
-        suggested_cmd="__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia your_app"
-      else
-        suggested_cmd="DRI_PRIME=${i} your_app"
-      fi
-
-      # Escape quotes in name for JSON safety (simple)
       esc_name="$(printf '%s' "$gpu_name" | sed 's/"/\\"/g')"
-      esc_suggested="$(printf '%s' "$suggested_cmd" | sed 's/"/\\"/g')"
+      esc_vendor="$(printf '%s' "$vendor" | sed 's/"/\\"/g')"
 
-      entry="{\"method\":\"glxinfo\",\"dri_prime\":${i},\"vendor\":\"${vendor}\",\"name\":\"${esc_name}\",\"suggested\":\"${esc_suggested}\"}"
+      entry="{\"method\":\"glxinfo\",\"dri_prime\":${i},\"vendor\":\"${esc_vendor}\",\"name\":\"${esc_name}\"}"
       append_result "$entry"
 
       if [[ "$OUTPUT_JSON" != true && "$OUTPUT_LIST" != true ]]; then
-        printf 'DRI_PRIME=%s → %s GPU: %s\n' "$i" "$vendor" "$gpu_name"
-        printf 'Suggested launch command:\n  %s\n\n' "$suggested_cmd"
+        printf 'DRI_PRIME=%s → %s GPU: %s\n\n' "$i" "$vendor" "$gpu_name"
       fi
     fi
   done
+fi
 
-elif [[ "$METHOD" == "lspci" ]]; then
+# -------------------------
+# lspci scanning (simple per-line style requested by user)
+# -------------------------
+if [[ "$METHOD" == "lspci" ]]; then
   if ! command -v lspci >/dev/null 2>&1; then
     err "Error: lspci not found. Install with your distro package manager (pciutils)"
     exit 1
@@ -189,45 +312,74 @@ elif [[ "$METHOD" == "lspci" ]]; then
       printf '%s\n' "$clean"
     fi
   done < <(lspci | grep -E "VGA|3D" || true)
-
-else
-  err "Unsupported method: $METHOD"
-  exit 1
 fi
 
-# Output modes
-if [[ "$OUTPUT_LIST" == true ]]; then
-  for e in "${results[@]}"; do
-    if printf '%s' "$e" | grep -q '"dri_prime"'; then
-      dri="$(printf '%s' "$e" | sed -n 's/.*"dri_prime":\([0-9]*\).*/\1/p')"
-      name="$(printf '%s' "$e" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')"
-      printf 'DRI_PRIME=%s\t%s\n' "${dri:-?}" "${name:-?}"
+# -------------------------
+# switcherooctl scanning (if requested) with service start/stop using systemctl
+# -------------------------
+if [[ "$METHOD" == "switcherooctl" ]]; then
+  log "Preparing switcherooctl scan"
+
+  # Start the helper service (best-effort). Only run when method is switcherooctl.
+  if command -v systemctl >/dev/null 2>&1; then
+    if command -v sudo >/dev/null 2>&1; then
+      # Try to start only if the unit exists (best-effort)
+      if systemctl list-unit-files --type=service | grep -q '^switcheroo-control.service'; then
+        if ! sudo systemctl start switcheroo-control.service 2>/dev/null; then
+          err "Warning: failed to start switcheroo-control.service (sudo systemctl start returned non-zero). Continuing to attempt scan."
+        fi
+      else
+        # Unit not found; skip start
+        err "Note: switcheroo-control.service not found; skipping service start."
+      fi
     else
-      bus="$(printf '%s' "$e" | sed -n 's/.*"bus":"\([^"]*\)".*/\1/p')"
-      name="$(printf '%s' "$e" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')"
-      printf '%s\t%s\n' "${bus:-?}" "${name:-?}"
+      err "Warning: sudo not found; cannot start switcheroo-control.service automatically."
     fi
-  done
+  else
+    err "Warning: systemctl not found; cannot manage switcheroo-control.service automatically."
+  fi
+
+  log "Scanning GPUs using switcherooctl / /sys/kernel/debug/switcheroo/clients"
+  if ! scan_switcherooctl; then
+    err "switcherooctl scan failed or not available"
+  fi
+
+  # Stop the helper service (best-effort)
+  if command -v systemctl >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then
+    if systemctl list-unit-files --type=service | grep -q '^switcheroo-control.service'; then
+      if ! sudo systemctl stop switcheroo-control.service 2>/dev/null; then
+        err "Warning: failed to stop switcheroo-control.service (sudo systemctl stop returned non-zero)."
+      fi
+    fi
+  fi
 fi
 
+# Final output: if JSON requested, print aggregated JSON array
 if [[ "$OUTPUT_JSON" == true ]]; then
   printf '[\n'
   first=true
-  for e in "${results[@]}"; do
+  for r in "${results[@]}"; do
     if [[ "$first" == true ]]; then
-      printf '  %s\n' "$e"
       first=false
     else
-      printf '  ,%s\n' "$e"
+      printf ',\n'
     fi
+    printf '  %s' "$r"
   done
-  printf ']\n'
+  printf '\n]\n'
 fi
 
-# Pause before exit when running interactively and not producing machine-readable output
-if [[ -t 1 && "$OUTPUT_JSON" != true && "$OUTPUT_LIST" != true ]]; then
-  printf '\nPress Enter to continue...'
-  IFS= read -r _
+# If list requested and we collected JSON entries, print compact list
+if [[ "$OUTPUT_LIST" == true && "${#results[@]}" -gt 0 ]]; then
+  for r in "${results[@]}"; do
+    name="$(printf '%s' "$r" | sed -E 's/.*"name":"([^"]+)".*/\1/;t; s/.*"short":"([^"]+)".*/\1/;t; s/.*"info":"([^"]+)".*/\1/')"
+    printf '%s\n' "$name"
+  done
+fi
+
+# If no explicit output mode and no results, notify
+if [[ "$OUTPUT_JSON" != true && "$OUTPUT_LIST" != true && "${#results[@]}" -eq 0 ]]; then
+  log "No GPU information discovered."
 fi
 
 exit 0
