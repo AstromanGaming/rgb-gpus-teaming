@@ -31,7 +31,7 @@ class Service:
                 return
             subprocess.Popen([LAUNCHER, desktopId])
         except Exception as e:
-            print(f"rgbgpus-daemon: failed to spawn launcher: {e}", file=sys.stderr)
+            print(f"dbus-daemon: failed to spawn launcher: {e}", file=sys.stderr)
 
     def LaunchDesktopAsRoot(self, desktopId):
         try:
@@ -41,7 +41,7 @@ class Service:
             # Pass second argument 'as-root' to indicate elevation request
             subprocess.Popen([LAUNCHER, desktopId, "as-root"])
         except Exception as e:
-            print(f"rgbgpus-daemon: failed to spawn launcher as root: {e}", file=sys.stderr)
+            print(f"dbus-daemon: failed to spawn launcher as root: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     bus = SessionBus()
