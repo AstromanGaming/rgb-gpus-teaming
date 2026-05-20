@@ -1,4 +1,5 @@
-// extension.js (ES module)
+// extension.js (ES module) - corrected: no top-level await, dynamic imports inside enable()
+
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import St from 'gi://St';
@@ -8,23 +9,10 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import { AppMenu } from 'resource:///org/gnome/shell/ui/appMenu.js';
 import { Extension, InjectionManager } from 'resource:///org/gnome/shell/extensions/extension.js';
 
-let AppIcon = null;
-try {
-  AppIcon = (await import('resource:///org/gnome/shell/ui/appDisplay.js')).AppIcon;
-} catch (e) {
-  try {
-    AppIcon = (await import('resource:///org/gnome/shell/ui/appIcon.js')).AppIcon;
-  } catch (e2) {
-    AppIcon = null;
-  }
-}
-
-// DBus constants
 const DBUS_NAME = 'ca.astromangaming.RGB-GPUs-Teaming';
 const DBUS_PATH = '/ca/astromangaming/RGB_Gpus_Teaming';
 const DBUS_INTERFACE = 'ca.astromangaming.RGB-GPUs-Teaming';
 
-// Fallback script and config
 const FALLBACK_SCRIPT = '/opt/rgb-gpus-teaming/gnome-launcher.sh';
 const EXCLUDED_JSON_PATH = '/opt/rgb-gpus-teaming/excluded.json';
 
@@ -46,13 +34,57 @@ export default class RgbGpusTeamingExtension extends Extension {
     this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED);
     this._injectedByDesktopId = new Map();
     this._fileMonitor = null;
+    this._dynamicModulesLoaded = false;
+    this._AppIconClass = null;
+    this._DashModule = null;
+  }
+
+  async _loadDynamicModules() {
+    if (this._dynamicModulesLoaded) return;
+    // Try to import appDisplay or appIcon module for AppIcon class
+    try {
+      const mod1 = await import('resource:///org/gnome/shell/ui/appDisplay.js').catch(() => null);
+      if (mod1 && mod1.AppIcon) {
+        this._AppIconClass = mod1.AppIcon;
+      } else {
+        const mod2 = await import('resource:///org/gnome/shell/ui/appIcon.js').catch(() => null);
+        if (mod2 && mod2.AppIcon) this._AppIconClass = mod2.AppIcon;
+      }
+    } catch (e) {
+      // ignore, fallback to null
+      this._AppIconClass = null;
+    }
+
+    // Try to import dash module (DashItem / Dash)
+    try {
+      const dashMod = await import('resource:///org/gnome/shell/ui/dash.js').catch(() => null);
+      if (dashMod) this._DashModule = dashMod;
+    } catch (e) {
+      this._DashModule = null;
+    }
+
+    this._dynamicModulesLoaded = true;
   }
 
   enable() {
-    const extension = this;
+    // Make enable async-safe by calling an async loader and continuing in its then()
     this._injectionManager = new InjectionManager();
     this._loadExcludedFromJson();
     this._setupExcludedFileMonitor();
+
+    // Load dynamic modules then set up injections
+    this._loadDynamicModules().then(() => {
+      this._setupInjections();
+      log('RGB GPUs Teaming: extension enabled');
+    }).catch((e) => {
+      log(`RGB GPUs Teaming: failed to load dynamic modules: ${e}`);
+      // still attempt to set up injections even if dynamic modules failed
+      this._setupInjections();
+    });
+  }
+
+  _setupInjections() {
+    const extension = this;
 
     // DBus helper returns Promise<boolean>
     this._callDbus = async (method, desktopId) => {
@@ -78,7 +110,6 @@ export default class RgbGpusTeamingExtension extends Extension {
         });
 
         const params = new GLib.Variant('(s)', [desktopId]);
-        // call asynchronously; ignore reply
         proxy.call(method, params, Gio.DBusCallFlags.NONE, -1, null, null, null);
         return true;
       } catch (e) {
@@ -87,7 +118,7 @@ export default class RgbGpusTeamingExtension extends Extension {
       }
     };
 
-    // Safe fallback spawn
+    // Fallback spawn
     this._runFallbackScript = (arg, asRoot = false) => {
       try {
         if (!GLib.file_test(FALLBACK_SCRIPT, GLib.FileTest.EXISTS | GLib.FileTest.IS_EXECUTABLE)) {
@@ -109,19 +140,23 @@ export default class RgbGpusTeamingExtension extends Extension {
         if (this._injectedByDesktopId.get(desktopId)) return;
 
         if (menuOwner && typeof menuOwner.addAction === 'function') {
-          menuOwner.addAction('Launch with RGB GPUs Teaming', () => {
-            extension._callDbus('LaunchDesktop', desktopId).then((called) => {
-              if (!called) extension._runFallbackScript(`${desktopId}.desktop`, false);
+          try {
+            menuOwner.addAction('Launch with RGB GPUs Teaming', () => {
+              extension._callDbus('LaunchDesktop', desktopId).then((called) => {
+                if (!called) extension._runFallbackScript(`${desktopId}.desktop`, false);
+              });
+              if (Main.overview.visible) Main.overview.hide();
             });
-            if (Main.overview.visible) Main.overview.hide();
-          });
 
-          menuOwner.addAction('Launch with RGB GPUs Teaming (root)', () => {
-            extension._callDbus('LaunchDesktopAsRoot', desktopId).then((called) => {
-              if (!called) extension._runFallbackScript(`${desktopId}.desktop`, true);
+            menuOwner.addAction('Launch as root (sudo/pkexec)', () => {
+              extension._callDbus('LaunchDesktopAsRoot', desktopId).then((called) => {
+                if (!called) extension._runFallbackScript(`${desktopId}.desktop`, true);
+              });
+              if (Main.overview.visible) Main.overview.hide();
             });
-            if (Main.overview.visible) Main.overview.hide();
-          });
+          } catch (e) {
+            log(`RGB GPUs Teaming: addAction failed for ${desktopId}: ${e}`);
+          }
         } else {
           log(`RGB GPUs Teaming: menuOwner has no addAction; skipping structured injection for ${desktopId}`);
         }
@@ -133,15 +168,21 @@ export default class RgbGpusTeamingExtension extends Extension {
       }
     };
 
-    // Helper to override prototype method and remember original
+    // Helper to override prototype method and remember original via InjectionManager
     const overrideProto = (obj, methodName, wrapperFactory) => {
       if (!obj || !obj.prototype || !obj.prototype[methodName]) return;
       const original = obj.prototype[methodName];
       obj.prototype[methodName] = wrapperFactory(original);
-      this._injectionManager.addOverride(obj.prototype, methodName, original);
+      try {
+        this._injectionManager.addOverride(obj.prototype, methodName, original);
+      } catch (e) {
+        // fallback: store locally if InjectionManager doesn't support addOverride
+        if (!this._localOverrides) this._localOverrides = [];
+        this._localOverrides.push({ obj: obj.prototype, method: methodName, original });
+      }
     };
 
-    // Inject into AppMenu.open
+    // AppMenu.open injection
     try {
       if (AppMenu && AppMenu.prototype && AppMenu.prototype.open) {
         overrideProto(AppMenu, 'open', (original) => {
@@ -163,11 +204,12 @@ export default class RgbGpusTeamingExtension extends Extension {
       log(`RGB GPUs Teaming: AppMenu injection failed: ${e}`);
     }
 
-    // Inject into AppIcon (overview)
+    // AppIcon (overview) injection if dynamic AppIcon class found
     try {
-      if (AppIcon && AppIcon.prototype) {
-        if (AppIcon.prototype._onButtonPress) {
-          overrideProto(AppIcon, '_onButtonPress', (original) => {
+      const AppIconClass = this._AppIconClass;
+      if (AppIconClass && AppIconClass.prototype) {
+        if (AppIconClass.prototype._onButtonPress) {
+          overrideProto(AppIconClass, '_onButtonPress', (original) => {
             return function (actor, event) {
               try {
                 const appInfo = this._app?.app_info;
@@ -183,8 +225,8 @@ export default class RgbGpusTeamingExtension extends Extension {
           });
         }
 
-        if (AppIcon.prototype._onSecondaryActivate) {
-          overrideProto(AppIcon, '_onSecondaryActivate', (original) => {
+        if (AppIconClass.prototype._onSecondaryActivate) {
+          overrideProto(AppIconClass, '_onSecondaryActivate', (original) => {
             return function (...args) {
               try {
                 const appInfo = this._app?.app_info;
@@ -204,34 +246,34 @@ export default class RgbGpusTeamingExtension extends Extension {
       log(`RGB GPUs Teaming: AppIcon injection failed: ${e}`);
     }
 
-    // AppDisplay injection (if present)
+    // AppDisplay injection (resource import)
     try {
-      const AppDisplay = await import('resource:///org/gnome/shell/ui/appDisplay.js').then(m => m.AppDisplay).catch(() => null);
-      if (AppDisplay && AppDisplay.prototype && AppDisplay.prototype._onButtonPress) {
-        overrideProto(AppDisplay, '_onButtonPress', (original) => {
-          return function (actor, event) {
-            try {
-              const appInfo = this._app?.app_info;
-              const desktopId = appInfo?.get_id?.();
-              if (desktopId && !extension._excludedDesktopIds.has(desktopId)) {
-                extension._injectActionsIntoMenu(this, desktopId);
+      import('resource:///org/gnome/shell/ui/appDisplay.js').then((mod) => {
+        const AppDisplay = mod?.AppDisplay || null;
+        if (AppDisplay && AppDisplay.prototype && AppDisplay.prototype._onButtonPress) {
+          overrideProto(AppDisplay, '_onButtonPress', (original) => {
+            return function (actor, event) {
+              try {
+                const appInfo = this._app?.app_info;
+                const desktopId = appInfo?.get_id?.();
+                if (desktopId && !extension._excludedDesktopIds.has(desktopId)) {
+                  extension._injectActionsIntoMenu(this, desktopId);
+                }
+              } catch (e) {
+                log(`RGB GPUs Teaming: AppDisplay._onButtonPress override error: ${e}`);
               }
-            } catch (e) {
-              log(`RGB GPUs Teaming: AppDisplay._onButtonPress override error: ${e}`);
-            }
-            return original.call(this, actor, event);
-          };
-        });
-      }
-    } catch (e) {
-      // ignore if not present
-    }
+              return original.call(this, actor, event);
+            };
+          });
+        }
+      }).catch(() => {});
+    } catch (e) {}
 
-    // Favorites / Dash injection (taskbar)
+    // Dash / DashItem injection (taskbar)
     try {
-      const DashModule = await import('resource:///org/gnome/shell/ui/dash.js').catch(() => null);
-      const DashItem = DashModule?.DashItem || DashModule?.DashItemView || null;
-      const Dash = DashModule?.Dash || DashModule?.DashView || null;
+      const dashMod = this._DashModule;
+      const DashItem = dashMod?.DashItem || dashMod?.DashItemView || null;
+      const Dash = dashMod?.Dash || dashMod?.DashView || null;
 
       const createPopupFor = (actor, desktopId) => {
         try {
@@ -239,14 +281,14 @@ export default class RgbGpusTeamingExtension extends Extension {
           const menu = new PopupMenu.PopupMenu(actor, 0.0, St.Side.TOP);
           const item1 = new PopupMenu.PopupMenuItem('Launch with RGB GPUs Teaming');
           item1.connect('activate', () => {
-            extension._callDbus('LaunchDesktop', desktopId).then((ok) => {
-              if (!ok) extension._runFallbackScript(`${desktopId}.desktop`, false);
+            this._callDbus('LaunchDesktop', desktopId).then((ok) => {
+              if (!ok) this._runFallbackScript(`${desktopId}.desktop`, false);
             });
           });
           const item2 = new PopupMenu.PopupMenuItem('Launch as root (sudo/pkexec)');
           item2.connect('activate', () => {
-            extension._callDbus('LaunchDesktopAsRoot', desktopId).then((ok) => {
-              if (!ok) extension._runFallbackScript(`${desktopId}.desktop`, true);
+            this._callDbus('LaunchDesktopAsRoot', desktopId).then((ok) => {
+              if (!ok) this._runFallbackScript(`${desktopId}.desktop`, true);
             });
           });
           menu.addMenuItem(item1);
@@ -310,8 +352,6 @@ export default class RgbGpusTeamingExtension extends Extension {
     } catch (e) {
       log(`RGB GPUs Teaming: dash injection setup failed: ${e}`);
     }
-
-    log('RGB GPUs Teaming: extension enabled');
   }
 
   disable() {
