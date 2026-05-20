@@ -10,7 +10,6 @@ function init() {
 
 function enable() {
   try {
-    // injector.js is loaded from the extension folder as a legacy module
     _injector = Me.imports.injector;
     if (_injector && typeof _injector.enable === 'function') {
       _injector.enable();

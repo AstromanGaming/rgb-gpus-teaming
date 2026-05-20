@@ -48,7 +48,6 @@ var injector = (function () {
   }
 
   function _callDbus(method, desktopId) {
-    // This function is kept for parity; extension uses DBus service or fallback script.
     return new Promise((resolve) => {
       try {
         Gio.DBusProxy.new_for_bus(
@@ -133,7 +132,6 @@ var injector = (function () {
     try {
       let AppMenu = AppMenuModule && AppMenuModule.AppMenu ? AppMenuModule.AppMenu : null;
       if (AppMenu && AppMenu.prototype && AppMenu.prototype.open) {
-        let self = this;
         _overrideProto(AppMenu, 'open', (original) => {
           return function (...args) {
             try {
@@ -291,7 +289,6 @@ var injector = (function () {
       _log('injector enabled');
     },
     disable: function () {
-      // restore overrides
       for (let o of _overrides) {
         try { o.obj[o.method] = o.original; } catch (e) {}
       }
