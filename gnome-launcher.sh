@@ -56,7 +56,6 @@ get_gpu_wrapper_cmd() {
   fi
 }
 
-# Helper to run a command array, optionally elevated
 run_cmd_array() {
   local -n arr=$1
   local elevated="$2"
@@ -64,7 +63,6 @@ run_cmd_array() {
   wrapper="$(get_gpu_wrapper_cmd)"
 
   if [[ "$elevated" == "yes" ]]; then
-    # Try pkexec first (preferred for GUI elevation)
     if command -v pkexec >/dev/null 2>&1; then
       log "Elevating with pkexec: ${arr[*]}"
       if [[ "$wrapper" == "prime-run" ]]; then
@@ -76,7 +74,6 @@ run_cmd_array() {
       return 0
     fi
 
-    # Fallback to sudo
     if command -v sudo >/dev/null 2>&1; then
       log "Elevating with sudo: ${arr[*]}"
       if [[ "$wrapper" == "prime-run" ]]; then
@@ -91,7 +88,6 @@ run_cmd_array() {
     log "No pkexec or sudo available for elevation"
     return 1
   else
-    # Non-elevated run
     if [[ "$wrapper" == "prime-run" ]]; then
       prime-run "${arr[@]}" & disown
     else
@@ -101,12 +97,10 @@ run_cmd_array() {
   fi
 }
 
-# If input is a .desktop entry
 if [[ "$input" == *.desktop ]]; then
   DESKTOP_ID="${input%.desktop}"
   log "Requested desktop launch: ${DESKTOP_ID} (elevate=${elevate_flag})"
 
-  # Prefer gtk-launch
   if command -v gtk-launch >/dev/null 2>&1; then
     CMD=("gtk-launch" "${DESKTOP_ID}")
     if [[ "$elevate_flag" == "as-root" ]]; then
@@ -117,7 +111,6 @@ if [[ "$input" == *.desktop ]]; then
     exit 0
   fi
 
-  # Try flatpak run if flatpak exists (best-effort)
   if command -v flatpak >/dev/null 2>&1; then
     CMD=("flatpak" "run" "${DESKTOP_ID}")
     if [[ "$elevate_flag" == "as-root" ]]; then
@@ -125,10 +118,8 @@ if [[ "$input" == *.desktop ]]; then
     else
       run_cmd_array CMD no || true
     fi
-    # continue to other fallbacks if flatpak run didn't work
   fi
 
-  # Fallback to gio open
   if command -v gio >/dev/null 2>&1; then
     CMD=("gio" "open" "desktop:${DESKTOP_ID}")
     if [[ "$elevate_flag" == "as-root" ]]; then
@@ -144,7 +135,6 @@ if [[ "$input" == *.desktop ]]; then
   exit 1
 fi
 
-# If input is an executable path and executable, run it in a terminal
 if [[ -f "$input" && -x "$input" ]]; then
   get_common_terminal() {
     for term in gnome-terminal xfce4-terminal konsole tilix x-terminal-emulator alacritty kitty urxvt terminator xterm; do
@@ -179,7 +169,6 @@ if [[ -f "$input" && -x "$input" ]]; then
   exit 0
 fi
 
-# If first token is an available command, run it with GPU env
 first_word="${input%% *}"
 if type -P "$first_word" >/dev/null 2>&1; then
   log "Launching command: $input (elevate=${elevate_flag})"

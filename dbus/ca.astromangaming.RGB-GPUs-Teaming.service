@@ -1,3 +1,3 @@
 [D-BUS Service]
 Name=ca.astromangaming.RGB-GPUs-Teaming
-Exec=/opt/rgb-gpus-teaming/dbus-daemon.py
+Exec=/usr/bin/python3 /opt/rgb-gpus-teaming/dbus-daemon.py
