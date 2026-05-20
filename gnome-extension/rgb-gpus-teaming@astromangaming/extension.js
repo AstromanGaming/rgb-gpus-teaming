@@ -1,17 +1,17 @@
-// extension.js (ES module, corrected)
-// - Top-level imports limited to gi://
-// - Dynamic resource imports inside enable()
-// - Single default export class (no ambiguous re-exports)
+/* extension.js (legacy GJS style)
+   Inject "Launch with RGB GPUs Teaming" actions into app menus, overview and dash.
+*/
 
-import GLib from 'gi://GLib';
-import Gio from 'gi://Gio';
-import St from 'gi://St';
+const GLib = imports.gi.GLib;
+const Gio = imports.gi.Gio;
+const St = imports.gi.St;
 
-const DBUS_NAME = 'ca.astromangaming.RGB-GPUs-Teaming';
-const DBUS_PATH = '/ca/astromangaming/RGB_Gpus_Teaming';
-const DBUS_INTERFACE = 'ca.astromangaming.RGB-GPUs-Teaming';
-const FALLBACK_SCRIPT = '/opt/rgb-gpus-teaming/gnome-launcher.sh';
-const EXCLUDED_JSON_PATH = '/opt/rgb-gpus-teaming/excluded.json';
+const PopupMenu = imports.ui.popupMenu;
+const Main = imports.ui.main;
+const AppDisplay = imports.ui.appDisplay || null;
+const AppIconModule = imports.ui.appIcon || null;
+const DashModule = imports.ui.dash || null;
+const AppMenuModule = imports.ui.appMenu || null;
 
 const DEFAULT_EXCLUDED = [
   'advisor.desktop',
@@ -24,75 +24,41 @@ const DEFAULT_EXCLUDED = [
   'manual-setup-vulkan.desktop'
 ];
 
-function _log(...args) {
-  try { log('RGB GPUs Teaming: ' + args.join(' ')); } catch (e) {}
+const DBUS_NAME = 'ca.astromangaming.RGB-GPUs-Teaming';
+const DBUS_PATH = '/ca/astromangaming/RGB_Gpus_Teaming';
+const DBUS_INTERFACE = 'ca.astromangaming.RGB-GPUs-Teaming';
+const FALLBACK_SCRIPT = '/opt/rgb-gpus-teaming/gnome-launcher.sh';
+const EXCLUDED_JSON_PATH = '/opt/rgb-gpus-teaming/excluded.json';
+
+function _log() {
+  try { log('RGB GPUs Teaming: ' + Array.prototype.join.call(arguments, ' ')); } catch (e) {}
 }
 
-export default class RgbGpusTeaming {
-  constructor() {
-    this._overrides = [];
-    this._injectedByDesktopId = new Map();
-    this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED);
-    this._fileMonitor = null;
-    this._dynamic = {}; // will hold dynamic imports (AppIcon, Dash, PopupMenu, Main)
-  }
+function RgbGpusTeamingExtension() {
+  this._overrides = [];
+  this._injectedByDesktopId = new Map();
+  this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED);
+  this._fileMonitor = null;
+}
 
-  async enable() {
-    _log('enable start');
-
-    // load PopupMenu and Main dynamically (resource modules may be ES modules)
-    try {
-      const popupMod = await import('resource:///org/gnome/shell/ui/popupMenu.js').catch(() => null);
-      this._dynamic.PopupMenu = popupMod ? popupMod : null;
-    } catch (e) {
-      this._dynamic.PopupMenu = null;
-    }
-
-    try {
-      const mainMod = await import('resource:///org/gnome/shell/ui/main.js').catch(() => null);
-      this._dynamic.Main = mainMod ? mainMod : null;
-    } catch (e) {
-      this._dynamic.Main = null;
-    }
-
-    // try to load AppIcon/AppDisplay and dash modules (best-effort)
-    try {
-      const appDisplay = await import('resource:///org/gnome/shell/ui/appDisplay.js').catch(() => null);
-      this._dynamic.AppIcon = appDisplay?.AppIcon ?? null;
-    } catch (e) {
-      this._dynamic.AppIcon = null;
-    }
-
-    if (!this._dynamic.AppIcon) {
-      try {
-        const appIcon = await import('resource:///org/gnome/shell/ui/appIcon.js').catch(() => null);
-        this._dynamic.AppIcon = appIcon?.AppIcon ?? null;
-      } catch (e) {
-        this._dynamic.AppIcon = null;
-      }
-    }
-
-    try {
-      const dashMod = await import('resource:///org/gnome/shell/ui/dash.js').catch(() => null);
-      this._dynamic.Dash = dashMod ?? null;
-    } catch (e) {
-      this._dynamic.Dash = null;
-    }
-
-    // load excluded list and monitor
+RgbGpusTeamingExtension.prototype = {
+  enable: function () {
+    _log('enable');
     this._loadExcludedFromJson();
     this._setupExcludedFileMonitor();
 
-    // set up injections now that dynamic modules are available
-    this._setupInjections();
+    // Setup injections
+    this._setupAppMenuInjection();
+    this._setupAppIconInjection();
+    this._setupDashInjection();
 
-    _log('enable done');
-  }
+    _log('enabled');
+  },
 
-  disable() {
-    _log('disable start');
+  disable: function () {
+    _log('disable');
     // restore overrides
-    for (const o of this._overrides) {
+    for (let o of this._overrides) {
       try { o.obj[o.method] = o.original; } catch (e) {}
     }
     this._overrides = [];
@@ -103,11 +69,11 @@ export default class RgbGpusTeaming {
 
     this._injectedByDesktopId = new Map();
     this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED);
-    _log('disable done');
-  }
+    _log('disabled');
+  },
 
-  // --- helpers
-  _callDbus(method, desktopId) {
+  // --- core helpers
+  _callDbus: function (method, desktopId) {
     return new Promise((resolve) => {
       try {
         Gio.DBusProxy.new_for_bus(
@@ -120,8 +86,8 @@ export default class RgbGpusTeaming {
           null,
           (obj, res) => {
             try {
-              const proxy = Gio.DBusProxy.new_for_bus_finish(res);
-              const params = new GLib.Variant('(s)', [desktopId]);
+              let proxy = Gio.DBusProxy.new_for_bus_finish(res);
+              let params = new GLib.Variant('(s)', [desktopId]);
               proxy.call(method, params, Gio.DBusCallFlags.NONE, -1, null, (p, r) => {
                 try { proxy.call_finish(r); } catch (e) {}
                 resolve(true);
@@ -137,22 +103,22 @@ export default class RgbGpusTeaming {
         resolve(false);
       }
     });
-  }
+  },
 
-  _runFallbackScript(arg, asRoot = false) {
+  _runFallbackScript: function (arg, asRoot) {
     try {
       if (!GLib.file_test(FALLBACK_SCRIPT, GLib.FileTest.EXISTS | GLib.FileTest.IS_EXECUTABLE)) {
         _log('fallback script missing or not executable:', FALLBACK_SCRIPT);
         return;
       }
-      const argv = asRoot ? [FALLBACK_SCRIPT, arg, 'as-root'] : [FALLBACK_SCRIPT, arg];
+      let argv = asRoot ? [FALLBACK_SCRIPT, arg, 'as-root'] : [FALLBACK_SCRIPT, arg];
       GLib.spawn_async(null, argv, null, GLib.SpawnFlags.SEARCH_PATH, null);
     } catch (e) {
       _log('spawn fallback failed:', e);
     }
-  }
+  },
 
-  _injectActionsIntoMenu(menuOwner, desktopId) {
+  _injectActionsIntoMenu: function (menuOwner, desktopId) {
     try {
       if (!desktopId) return;
       if (this._excludedDesktopIds.has(desktopId)) return;
@@ -162,16 +128,16 @@ export default class RgbGpusTeaming {
         try {
           menuOwner.addAction('Launch with RGB GPUs Teaming', () => {
             this._callDbus('LaunchDesktop', desktopId).then((ok) => {
-              if (!ok) this._runFallbackScript(`${desktopId}.desktop`, false);
+              if (!ok) this._runFallbackScript(desktopId + '.desktop', false);
             });
-            if (this._dynamic.Main?.overview?.visible) this._dynamic.Main.overview.hide();
+            if (Main.overview && Main.overview.visible) Main.overview.hide();
           });
 
           menuOwner.addAction('Launch as root (sudo/pkexec)', () => {
             this._callDbus('LaunchDesktopAsRoot', desktopId).then((ok) => {
-              if (!ok) this._runFallbackScript(`${desktopId}.desktop`, true);
+              if (!ok) this._runFallbackScript(desktopId + '.desktop', true);
             });
-            if (this._dynamic.Main?.overview?.visible) this._dynamic.Main.overview.hide();
+            if (Main.overview && Main.overview.visible) Main.overview.hide();
           });
         } catch (e) {
           _log('addAction failed:', e);
@@ -185,65 +151,64 @@ export default class RgbGpusTeaming {
     } catch (e) {
       _log('injectActions error:', e);
     }
-  }
+  },
 
-  _overrideProto(obj, methodName, wrapperFactory) {
+  _overrideProto: function (obj, methodName, wrapperFactory) {
     if (!obj || !obj.prototype || !obj.prototype[methodName]) return;
-    const original = obj.prototype[methodName];
+    let original = obj.prototype[methodName];
     obj.prototype[methodName] = wrapperFactory(original);
-    this._overrides.push({ obj: obj.prototype, method: methodName, original });
+    this._overrides.push({ obj: obj.prototype, method: methodName, original: original });
     _log('overrode', methodName);
-  }
+  },
 
-  _setupInjections() {
-    // AppMenu (resource path may be available as module)
+  // --- injection points
+  _setupAppMenuInjection: function () {
     try {
-      const AppMenuMod = await import('resource:///org/gnome/shell/ui/appMenu.js').catch(() => null);
-      const AppMenu = AppMenuMod?.AppMenu ?? null;
+      let AppMenu = AppMenuModule && AppMenuModule.AppMenu ? AppMenuModule.AppMenu : null;
       if (AppMenu && AppMenu.prototype && AppMenu.prototype.open) {
+        let self = this;
         this._overrideProto(AppMenu, 'open', (original) => {
-          const self = this;
           return function (...args) {
             try {
-              const appInfo = this._app?.app_info;
-              const desktopId = appInfo?.get_id?.();
+              let appInfo = this._app && this._app.app_info ? this._app.app_info : null;
+              let desktopId = appInfo && appInfo.get_id ? appInfo.get_id() : null;
               if (desktopId && !self._excludedDesktopIds.has(desktopId)) self._injectActionsIntoMenu(this, desktopId);
             } catch (e) {}
-            return original.call(this, ...args);
+            return original.apply(this, args);
           };
         });
       }
     } catch (e) {
       _log('AppMenu injection failed:', e);
     }
+  },
 
-    // AppIcon (overview)
+  _setupAppIconInjection: function () {
     try {
-      const AppIconClass = this._dynamic.AppIcon;
-      if (AppIconClass && AppIconClass.prototype) {
-        if (AppIconClass.prototype._onButtonPress) {
-          this._overrideProto(AppIconClass, '_onButtonPress', (original) => {
-            const self = this;
+      let AppIcon = (AppDisplay && AppDisplay.AppIcon) ? AppDisplay.AppIcon : (AppIconModule && AppIconModule.AppIcon ? AppIconModule.AppIcon : null);
+      if (AppIcon && AppIcon.prototype) {
+        let self = this;
+        if (AppIcon.prototype._onButtonPress) {
+          this._overrideProto(AppIcon, '_onButtonPress', (original) => {
             return function (actor, event) {
               try {
-                const appInfo = this._app?.app_info;
-                const desktopId = appInfo?.get_id?.();
+                let appInfo = this._app && this._app.app_info ? this._app.app_info : null;
+                let desktopId = appInfo && appInfo.get_id ? appInfo.get_id() : null;
                 if (desktopId && !self._excludedDesktopIds.has(desktopId)) self._injectActionsIntoMenu(this, desktopId);
               } catch (e) {}
               return original.call(this, actor, event);
             };
           });
         }
-        if (AppIconClass.prototype._onSecondaryActivate) {
-          this._overrideProto(AppIconClass, '_onSecondaryActivate', (original) => {
-            const self = this;
+        if (AppIcon.prototype._onSecondaryActivate) {
+          this._overrideProto(AppIcon, '_onSecondaryActivate', (original) => {
             return function (...args) {
               try {
-                const appInfo = this._app?.app_info;
-                const desktopId = appInfo?.get_id?.();
+                let appInfo = this._app && this._app.app_info ? this._app.app_info : null;
+                let desktopId = appInfo && appInfo.get_id ? appInfo.get_id() : null;
                 if (desktopId && !self._excludedDesktopIds.has(desktopId)) self._injectActionsIntoMenu(this, desktopId);
               } catch (e) {}
-              return original.call(this, ...args);
+              return original.apply(this, args);
             };
           });
         }
@@ -251,28 +216,28 @@ export default class RgbGpusTeaming {
     } catch (e) {
       _log('AppIcon injection failed:', e);
     }
+  },
 
-    // Dash / DashItem (taskbar) — create right-click popup fallback
+  _setupDashInjection: function () {
     try {
-      const dashMod = this._dynamic.Dash;
-      const DashItem = dashMod?.DashItem || dashMod?.DashItemView || null;
-      const Dash = dashMod?.Dash || dashMod?.DashView || null;
-      const PopupMenu = this._dynamic.PopupMenu;
+      let DashItem = DashModule && (DashModule.DashItem || DashModule.DashItemView) ? (DashModule.DashItem || DashModule.DashItemView) : null;
+      let Dash = DashModule && (DashModule.Dash || DashModule.DashView) ? (DashModule.Dash || DashModule.DashView) : null;
+      let self = this;
 
-      const createPopupFor = (actor, desktopId) => {
+      const createPopupFor = function (actor, desktopId) {
         try {
           if (!actor || actor._rgbGpuMenuCreated) return;
-          const menu = new PopupMenu.PopupMenu(actor, 0.0, St.Side.TOP);
-          const item1 = new PopupMenu.PopupMenuItem('Launch with RGB GPUs Teaming');
+          let menu = new PopupMenu.PopupMenu(actor, 0.0, St.Side.TOP);
+          let item1 = new PopupMenu.PopupMenuItem('Launch with RGB GPUs Teaming');
           item1.connect('activate', () => {
-            this._callDbus('LaunchDesktop', desktopId).then((ok) => {
-              if (!ok) this._runFallbackScript(`${desktopId}.desktop`, false);
+            self._callDbus('LaunchDesktop', desktopId).then((ok) => {
+              if (!ok) self._runFallbackScript(desktopId + '.desktop', false);
             });
           });
-          const item2 = new PopupMenu.PopupMenuItem('Launch as root (sudo/pkexec)');
+          let item2 = new PopupMenu.PopupMenuItem('Launch as root (sudo/pkexec)');
           item2.connect('activate', () => {
-            this._callDbus('LaunchDesktopAsRoot', desktopId).then((ok) => {
-              if (!ok) this._runFallbackScript(`${desktopId}.desktop`, true);
+            self._callDbus('LaunchDesktopAsRoot', desktopId).then((ok) => {
+              if (!ok) self._runFallbackScript(desktopId + '.desktop', true);
             });
           });
           menu.addMenuItem(item1);
@@ -288,12 +253,11 @@ export default class RgbGpusTeaming {
 
       if (DashItem && DashItem.prototype && DashItem.prototype._onButtonPress) {
         this._overrideProto(DashItem, '_onButtonPress', (original) => {
-          const self = this;
           return function (actor, event) {
             try {
-              const app = this._app || this.app || null;
-              const appInfo = app?.app_info || (app && app.get_app_info ? app.get_app_info() : null);
-              const desktopId = appInfo?.get_id?.() || (app && app.get_id ? app.get_id() : null);
+              let app = this._app || this.app || null;
+              let appInfo = app && app.app_info ? app.app_info : (app && app.get_app_info ? app.get_app_info() : null);
+              let desktopId = appInfo && appInfo.get_id ? appInfo.get_id() : (app && app.get_id ? app.get_id() : null);
               if (desktopId && !self._excludedDesktopIds.has(desktopId)) {
                 if (typeof this.addAction === 'function') self._injectActionsIntoMenu(this, desktopId);
                 else createPopupFor(this.actor || this._delegate || actor, desktopId);
@@ -306,12 +270,11 @@ export default class RgbGpusTeaming {
 
       if (Dash && Dash.prototype && Dash.prototype._onButtonPress) {
         this._overrideProto(Dash, '_onButtonPress', (original) => {
-          const self = this;
           return function (actor, event) {
             try {
-              const delegate = actor._delegate || actor._app || null;
-              const appInfo = delegate?.app_info || (delegate && delegate.get_app_info ? delegate.get_app_info() : null);
-              const desktopId = appInfo?.get_id?.() || (delegate && delegate.get_id ? delegate.get_id() : null);
+              let delegate = actor._delegate || actor._app || null;
+              let appInfo = delegate && delegate.app_info ? delegate.app_info : (delegate && delegate.get_app_info ? delegate.get_app_info() : null);
+              let desktopId = appInfo && appInfo.get_id ? appInfo.get_id() : (delegate && delegate.get_id ? delegate.get_id() : null);
               if (desktopId && !self._excludedDesktopIds.has(desktopId)) {
                 if (delegate && typeof delegate.addAction === 'function') self._injectActionsIntoMenu(delegate, desktopId);
                 else createPopupFor(actor, desktopId);
@@ -324,28 +287,32 @@ export default class RgbGpusTeaming {
     } catch (e) {
       _log('Dash injection setup failed:', e);
     }
-  }
+  },
 
   // --- excluded JSON handling
-  _loadExcludedFromJson() {
+  _loadExcludedFromJson: function () {
     try {
-      const file = Gio.File.new_for_path(EXCLUDED_JSON_PATH);
+      let file = Gio.File.new_for_path(EXCLUDED_JSON_PATH);
       if (!file.query_exists(null)) { this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED); return; }
-      const [, contents] = file.load_contents(null);
+      let [, contents] = file.load_contents(null);
       if (!contents) { this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED); return; }
-      const text = imports.byteArray.toString(contents);
+      let text = imports.byteArray.toString(contents);
       let parsed = null;
       try { parsed = JSON.parse(text); } catch (e) { this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED); return; }
       if (parsed && Array.isArray(parsed.excluded)) this._excludedDesktopIds = new Set(parsed.excluded);
       else this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED);
     } catch (e) { this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED); }
-  }
+  },
 
-  _setupExcludedFileMonitor() {
+  _setupExcludedFileMonitor: function () {
     try {
-      const file = Gio.File.new_for_path(EXCLUDED_JSON_PATH);
+      let file = Gio.File.new_for_path(EXCLUDED_JSON_PATH);
       this._fileMonitor = file.monitor_file(Gio.FileMonitorFlags.NONE, null);
       this._fileMonitor.connect('changed', () => { this._loadExcludedFromJson(); });
     } catch (e) { this._fileMonitor = null; }
   }
+};
+
+function init() {
+  return new RgbGpusTeamingExtension();
 }
