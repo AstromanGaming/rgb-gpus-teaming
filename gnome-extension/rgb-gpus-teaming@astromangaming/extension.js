@@ -1,18 +1,30 @@
-const GLib = imports.gi.GLib;
-const Gio = imports.gi.Gio;
-const St = imports.gi.St;
+// extension.js (ES module)
+import GLib from 'gi://GLib';
+import Gio from 'gi://Gio';
+import St from 'gi://St';
 
-const PopupMenu = imports.ui.popupMenu;
-const Main = imports.ui.main;
-const AppDisplay = imports.ui.appDisplay || null;
-const AppMenu = imports.ui.appMenu && imports.ui.appMenu.AppMenu ? imports.ui.appMenu.AppMenu : null;
-const ExtensionUtils = imports.misc.extensionUtils;
-const Me = ExtensionUtils.getCurrentExtension();
+import PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import { AppMenu } from 'resource:///org/gnome/shell/ui/appMenu.js';
+import { Extension, InjectionManager } from 'resource:///org/gnome/shell/extensions/extension.js';
 
+let AppIcon = null;
+try {
+  AppIcon = (await import('resource:///org/gnome/shell/ui/appDisplay.js')).AppIcon;
+} catch (e) {
+  try {
+    AppIcon = (await import('resource:///org/gnome/shell/ui/appIcon.js')).AppIcon;
+  } catch (e2) {
+    AppIcon = null;
+  }
+}
+
+// DBus constants
 const DBUS_NAME = 'ca.astromangaming.RGB-GPUs-Teaming';
-const DBUS_PATH = '/ca/astromangaming/RGB_Gpus_Teaming'; // valid object path (no hyphens)
+const DBUS_PATH = '/ca/astromangaming/RGB_Gpus_Teaming';
 const DBUS_INTERFACE = 'ca.astromangaming.RGB-GPUs-Teaming';
 
+// Fallback script and config
 const FALLBACK_SCRIPT = '/opt/rgb-gpus-teaming/gnome-launcher.sh';
 const EXCLUDED_JSON_PATH = '/opt/rgb-gpus-teaming/excluded.json';
 
@@ -27,32 +39,25 @@ const DEFAULT_EXCLUDED = [
   'manual-setup-vulkan.desktop'
 ];
 
-function logDebug(...args) {
-  try {
-    log('RGB GPUs Teaming: ' + args.join(' '));
-  } catch (e) {}
-}
+export default class RgbGpusTeamingExtension extends Extension {
+  constructor() {
+    super();
+    this._injectionManager = null;
+    this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED);
+    this._injectedByDesktopId = new Map();
+    this._fileMonitor = null;
+  }
 
-function RgbGpusTeamingExtension() {
-  this._overrides = [];
-  this._injectedByDesktopId = new Map();
-  this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED);
-  this._fileMonitor = null;
-}
-
-RgbGpusTeamingExtension.prototype = {
-  enable: function () {
-    logDebug('enable');
+  enable() {
+    const extension = this;
+    this._injectionManager = new InjectionManager();
     this._loadExcludedFromJson();
     this._setupExcludedFileMonitor();
 
-    // store originals for cleanup
-    this._overrides = [];
-
-    // Helper: call DBus method asynchronously; returns Promise<boolean>
-    this._callDbus = (method, desktopId) => {
-      return new Promise((resolve) => {
-        try {
+    // DBus helper returns Promise<boolean>
+    this._callDbus = async (method, desktopId) => {
+      try {
+        const proxy = await new Promise((resolve, reject) => {
           Gio.DBusProxy.new_for_bus(
             Gio.BusType.SESSION,
             Gio.DBusProxyFlags.NONE,
@@ -63,40 +68,36 @@ RgbGpusTeamingExtension.prototype = {
             null,
             (obj, res) => {
               try {
-                let proxy = Gio.DBusProxy.new_for_bus_finish(res);
-                let params = new GLib.Variant('(s)', [desktopId]);
-                proxy.call(method, params, Gio.DBusCallFlags.NONE, -1, null, (p, r) => {
-                  try {
-                    proxy.call_finish(r);
-                  } catch (e) {
-                    // ignore call finish errors
-                  }
-                  resolve(true);
-                }, null);
-              } catch (e) {
-                logDebug('DBus proxy creation failed:', e);
-                resolve(false);
+                const p = Gio.DBusProxy.new_for_bus_finish(res);
+                resolve(p);
+              } catch (err) {
+                reject(err);
               }
             }
           );
-        } catch (e) {
-          logDebug('DBus call setup failed:', e);
-          resolve(false);
-        }
-      });
+        });
+
+        const params = new GLib.Variant('(s)', [desktopId]);
+        // call asynchronously; ignore reply
+        proxy.call(method, params, Gio.DBusCallFlags.NONE, -1, null, null, null);
+        return true;
+      } catch (e) {
+        log(`RGB GPUs Teaming: D-Bus ${method} call failed: ${e}`);
+        return false;
+      }
     };
 
-    // Fallback: spawn script safely with argv array
-    this._runFallbackScript = (arg, asRoot) => {
+    // Safe fallback spawn
+    this._runFallbackScript = (arg, asRoot = false) => {
       try {
         if (!GLib.file_test(FALLBACK_SCRIPT, GLib.FileTest.EXISTS | GLib.FileTest.IS_EXECUTABLE)) {
-          logDebug('fallback script missing or not executable:', FALLBACK_SCRIPT);
+          log(`RGB GPUs Teaming: fallback script absent or not executable: ${FALLBACK_SCRIPT}`);
           return;
         }
-        let argv = asRoot ? [FALLBACK_SCRIPT, arg, 'as-root'] : [FALLBACK_SCRIPT, arg];
+        const argv = asRoot ? [FALLBACK_SCRIPT, arg, 'as-root'] : [FALLBACK_SCRIPT, arg];
         GLib.spawn_async(null, argv, null, GLib.SpawnFlags.SEARCH_PATH, null);
       } catch (e) {
-        logDebug('spawn fallback failed:', e);
+        log(`RGB GPUs Teaming: failed to spawn fallback script: ${e}`);
       }
     };
 
@@ -108,147 +109,144 @@ RgbGpusTeamingExtension.prototype = {
         if (this._injectedByDesktopId.get(desktopId)) return;
 
         if (menuOwner && typeof menuOwner.addAction === 'function') {
-          try {
-            menuOwner.addAction('Launch with RGB GPUs Teaming', () => {
-              this._callDbus('LaunchDesktop', desktopId).then((ok) => {
-                if (!ok) this._runFallbackScript(`${desktopId}.desktop`, false);
-              });
-              if (Main.overview && Main.overview.visible) Main.overview.hide();
+          menuOwner.addAction('Launch with RGB GPUs Teaming', () => {
+            extension._callDbus('LaunchDesktop', desktopId).then((called) => {
+              if (!called) extension._runFallbackScript(`${desktopId}.desktop`, false);
             });
+            if (Main.overview.visible) Main.overview.hide();
+          });
 
-            menuOwner.addAction('Launch as root (sudo/pkexec)', () => {
-              this._callDbus('LaunchDesktopAsRoot', desktopId).then((ok) => {
-                if (!ok) this._runFallbackScript(`${desktopId}.desktop`, true);
-              });
-              if (Main.overview && Main.overview.visible) Main.overview.hide();
+          menuOwner.addAction('Launch with RGB GPUs Teaming (root)', () => {
+            extension._callDbus('LaunchDesktopAsRoot', desktopId).then((called) => {
+              if (!called) extension._runFallbackScript(`${desktopId}.desktop`, true);
             });
-          } catch (e) {
-            logDebug('addAction failed:', e);
-          }
+            if (Main.overview.visible) Main.overview.hide();
+          });
         } else {
-          logDebug('menuOwner has no addAction; skipping structured injection for', desktopId);
+          log(`RGB GPUs Teaming: menuOwner has no addAction; skipping structured injection for ${desktopId}`);
         }
 
         this._injectedByDesktopId.set(desktopId, true);
-        logDebug('injected actions for', desktopId);
+        log(`RGB GPUs Teaming: injected actions for ${desktopId}`);
       } catch (e) {
-        logDebug('injectActions error:', e);
+        log(`RGB GPUs Teaming: injection error for ${desktopId}: ${e}`);
       }
     };
 
-    // Utility to override prototype method and remember original
+    // Helper to override prototype method and remember original
     const overrideProto = (obj, methodName, wrapperFactory) => {
       if (!obj || !obj.prototype || !obj.prototype[methodName]) return;
-      let original = obj.prototype[methodName];
-      let self = this;
+      const original = obj.prototype[methodName];
       obj.prototype[methodName] = wrapperFactory(original);
-      this._overrides.push({ obj: obj.prototype, method: methodName, original: original });
-      logDebug('overrode', methodName, 'on', obj);
+      this._injectionManager.addOverride(obj.prototype, methodName, original);
     };
 
-    // 1) AppMenu.open injection (application menu)
+    // Inject into AppMenu.open
     try {
       if (AppMenu && AppMenu.prototype && AppMenu.prototype.open) {
         overrideProto(AppMenu, 'open', (original) => {
           return function (...args) {
             try {
-              let appInfo = this._app && this._app.app_info ? this._app.app_info : null;
-              if (appInfo && appInfo.get_id) {
-                let desktopId = appInfo.get_id();
-                if (desktopId) this._extension && this._extension._injectActionsIntoMenu ? this._extension._injectActionsIntoMenu(this, desktopId) : null;
+              const appInfo = this._app?.app_info;
+              const desktopId = appInfo?.get_id?.();
+              if (desktopId && !extension._excludedDesktopIds.has(desktopId)) {
+                extension._injectActionsIntoMenu(this, desktopId);
               }
             } catch (e) {
-              // ignore
+              log(`RGB GPUs Teaming: AppMenu.open override error: ${e}`);
             }
-            return original.apply(this, args);
+            return original.call(this, ...args);
           };
         });
       }
     } catch (e) {
-      logDebug('AppMenu injection failed:', e);
+      log(`RGB GPUs Teaming: AppMenu injection failed: ${e}`);
     }
 
-    // Attach extension reference to prototypes used in wrappers
-    // (so wrapper can call back into this instance)
+    // Inject into AppIcon (overview)
     try {
-      if (AppMenu && AppMenu.prototype) AppMenu.prototype._extension = this;
-    } catch (e) {}
-
-    // 2) AppIcon (overview grid) injection
-    try {
-      let AppIcon = imports.ui.appDisplay && imports.ui.appDisplay.AppIcon ? imports.ui.appDisplay.AppIcon : (imports.ui.appIcon && imports.ui.appIcon.AppIcon ? imports.ui.appIcon.AppIcon : null);
       if (AppIcon && AppIcon.prototype) {
         if (AppIcon.prototype._onButtonPress) {
           overrideProto(AppIcon, '_onButtonPress', (original) => {
             return function (actor, event) {
               try {
-                let app = this._app || null;
-                let appInfo = app && app.app_info ? app.app_info : null;
-                let desktopId = appInfo && appInfo.get_id ? appInfo.get_id() : (app && app.get_id ? app.get_id() : null);
-                if (desktopId && !this._extension._isExcluded(desktopId)) this._extension._injectActionsIntoMenu(this, desktopId);
-              } catch (e) {}
+                const appInfo = this._app?.app_info;
+                const desktopId = appInfo?.get_id?.();
+                if (desktopId && !extension._excludedDesktopIds.has(desktopId)) {
+                  extension._injectActionsIntoMenu(this, desktopId);
+                }
+              } catch (e) {
+                log(`RGB GPUs Teaming: AppIcon._onButtonPress override error: ${e}`);
+              }
               return original.call(this, actor, event);
             };
           });
         }
+
         if (AppIcon.prototype._onSecondaryActivate) {
           overrideProto(AppIcon, '_onSecondaryActivate', (original) => {
             return function (...args) {
               try {
-                let app = this._app || null;
-                let appInfo = app && app.app_info ? app.app_info : null;
-                let desktopId = appInfo && appInfo.get_id ? appInfo.get_id() : (app && app.get_id ? app.get_id() : null);
-                if (desktopId && !this._extension._isExcluded(desktopId)) this._extension._injectActionsIntoMenu(this, desktopId);
-              } catch (e) {}
-              return original.apply(this, args);
+                const appInfo = this._app?.app_info;
+                const desktopId = appInfo?.get_id?.();
+                if (desktopId && !extension._excludedDesktopIds.has(desktopId)) {
+                  extension._injectActionsIntoMenu(this, desktopId);
+                }
+              } catch (e) {
+                log(`RGB GPUs Teaming: AppIcon._onSecondaryActivate override error: ${e}`);
+              }
+              return original.call(this, ...args);
             };
           });
         }
-        AppIcon.prototype._extension = this;
       }
     } catch (e) {
-      logDebug('AppIcon injection failed:', e);
+      log(`RGB GPUs Teaming: AppIcon injection failed: ${e}`);
     }
 
-    // 3) AppDisplay injection (if present)
+    // AppDisplay injection (if present)
     try {
-      if (imports.ui.appDisplay && imports.ui.appDisplay.AppDisplay && imports.ui.appDisplay.AppDisplay.prototype._onButtonPress) {
-        overrideProto(imports.ui.appDisplay.AppDisplay, '_onButtonPress', (original) => {
+      const AppDisplay = await import('resource:///org/gnome/shell/ui/appDisplay.js').then(m => m.AppDisplay).catch(() => null);
+      if (AppDisplay && AppDisplay.prototype && AppDisplay.prototype._onButtonPress) {
+        overrideProto(AppDisplay, '_onButtonPress', (original) => {
           return function (actor, event) {
             try {
-              let app = this._app || null;
-              let appInfo = app && app.app_info ? app.app_info : null;
-              let desktopId = appInfo && appInfo.get_id ? appInfo.get_id() : (app && app.get_id ? app.get_id() : null);
-              if (desktopId && !this._extension._isExcluded(desktopId)) this._extension._injectActionsIntoMenu(this, desktopId);
-            } catch (e) {}
+              const appInfo = this._app?.app_info;
+              const desktopId = appInfo?.get_id?.();
+              if (desktopId && !extension._excludedDesktopIds.has(desktopId)) {
+                extension._injectActionsIntoMenu(this, desktopId);
+              }
+            } catch (e) {
+              log(`RGB GPUs Teaming: AppDisplay._onButtonPress override error: ${e}`);
+            }
             return original.call(this, actor, event);
           };
         });
-        imports.ui.appDisplay.AppDisplay.prototype._extension = this;
       }
     } catch (e) {
-      // ignore
+      // ignore if not present
     }
 
-    // 4) Favorites / Dash injection (taskbar)
+    // Favorites / Dash injection (taskbar)
     try {
-      let DashItem = imports.ui.dash && (imports.ui.dash.DashItem || imports.ui.dash.DashItemView) ? (imports.ui.dash.DashItem || imports.ui.dash.DashItemView) : null;
-      let Dash = imports.ui.dash && (imports.ui.dash.Dash || imports.ui.dash.DashView) ? (imports.ui.dash.Dash || imports.ui.dash.DashView) : null;
+      const DashModule = await import('resource:///org/gnome/shell/ui/dash.js').catch(() => null);
+      const DashItem = DashModule?.DashItem || DashModule?.DashItemView || null;
+      const Dash = DashModule?.Dash || DashModule?.DashView || null;
 
       const createPopupFor = (actor, desktopId) => {
         try {
           if (!actor || actor._rgbGpuMenuCreated) return;
-          let menu = new PopupMenu.PopupMenu(actor, 0.0, St.Side.TOP);
-          let item1 = new PopupMenu.PopupMenuItem('Launch with RGB GPUs Teaming');
+          const menu = new PopupMenu.PopupMenu(actor, 0.0, St.Side.TOP);
+          const item1 = new PopupMenu.PopupMenuItem('Launch with RGB GPUs Teaming');
           item1.connect('activate', () => {
-            this._callDbus('LaunchDesktop', desktopId).then((ok) => {
-              if (!ok) this._runFallbackScript(`${desktopId}.desktop`, false);
+            extension._callDbus('LaunchDesktop', desktopId).then((ok) => {
+              if (!ok) extension._runFallbackScript(`${desktopId}.desktop`, false);
             });
           });
-          let item2 = new PopupMenu.PopupMenuItem('Launch as root (sudo/pkexec)');
+          const item2 = new PopupMenu.PopupMenuItem('Launch as root (sudo/pkexec)');
           item2.connect('activate', () => {
-            this._callDbus('LaunchDesktopAsRoot', desktopId).then((ok) => {
-              if (!ok) this._runFallbackScript(`${desktopId}.desktop`, true);
+            extension._callDbus('LaunchDesktopAsRoot', desktopId).then((ok) => {
+              if (!ok) extension._runFallbackScript(`${desktopId}.desktop`, true);
             });
           });
           menu.addMenuItem(item1);
@@ -262,7 +260,7 @@ RgbGpusTeamingExtension.prototype = {
             return false;
           });
         } catch (e) {
-          logDebug('createPopupFor error:', e);
+          log(`RGB GPUs Teaming: createPopupFor error: ${e}`);
         }
       };
 
@@ -270,131 +268,125 @@ RgbGpusTeamingExtension.prototype = {
         overrideProto(DashItem, '_onButtonPress', (original) => {
           return function (actor, event) {
             try {
-              let app = this._app || this.app || null;
-              let appInfo = app && app.app_info ? app.app_info : (app && app.get_app_info ? app.get_app_info() : null);
-              let desktopId = appInfo && appInfo.get_id ? appInfo.get_id() : (app && app.get_id ? app.get_id() : null);
-              if (desktopId && !this._extension._isExcluded(desktopId)) {
+              const app = this._app || this.app || null;
+              const appInfo = app?.app_info || app?.get_app_info?.();
+              const desktopId = appInfo?.get_id?.() || app?.get_id?.();
+              if (desktopId && !extension._excludedDesktopIds.has(desktopId)) {
                 if (typeof this.addAction === 'function') {
-                  this._extension._injectActionsIntoMenu(this, desktopId);
+                  extension._injectActionsIntoMenu(this, desktopId);
                 } else {
                   createPopupFor(this.actor || this._delegate || actor, desktopId);
                 }
               }
-            } catch (e) {}
+            } catch (e) {
+              log(`RGB GPUs Teaming: DashItem._onButtonPress override error: ${e}`);
+            }
             return original.call(this, actor, event);
           };
         });
-        DashItem.prototype._extension = this;
       }
 
       if (Dash && Dash.prototype && Dash.prototype._onButtonPress) {
         overrideProto(Dash, '_onButtonPress', (original) => {
           return function (actor, event) {
             try {
-              let delegate = actor._delegate || actor._app || null;
-              let appInfo = delegate && delegate.app_info ? delegate.app_info : (delegate && delegate.get_app_info ? delegate.get_app_info() : null);
-              let desktopId = appInfo && appInfo.get_id ? appInfo.get_id() : (delegate && delegate.get_id ? delegate.get_id() : null);
-              if (desktopId && !this._extension._isExcluded(desktopId)) {
+              const delegate = actor._delegate || actor._app || null;
+              const appInfo = delegate?.app_info || delegate?.get_app_info?.();
+              const desktopId = appInfo?.get_id?.() || delegate?.get_id?.();
+              if (desktopId && !extension._excludedDesktopIds.has(desktopId)) {
                 if (delegate && typeof delegate.addAction === 'function') {
-                  this._extension._injectActionsIntoMenu(delegate, desktopId);
+                  extension._injectActionsIntoMenu(delegate, desktopId);
                 } else {
                   createPopupFor(actor, desktopId);
                 }
               }
-            } catch (e) {}
+            } catch (e) {
+              log(`RGB GPUs Teaming: Dash._onButtonPress override error: ${e}`);
+            }
             return original.call(this, actor, event);
           };
         });
-        Dash.prototype._extension = this;
       }
     } catch (e) {
-      logDebug('Dash injection setup failed:', e);
+      log(`RGB GPUs Teaming: dash injection setup failed: ${e}`);
     }
 
-    logDebug('enable finished');
-  },
+    log('RGB GPUs Teaming: extension enabled');
+  }
 
-  disable: function () {
-    logDebug('disable');
-    // restore overrides
+  disable() {
     try {
-      for (let o of this._overrides) {
-        try {
-          o.obj[o.method] = o.original;
-        } catch (e) {}
+      if (this._injectionManager) {
+        this._injectionManager.clear();
+        this._injectionManager = null;
       }
-      this._overrides = [];
     } catch (e) {
-      logDebug('error restoring overrides:', e);
+      log(`RGB GPUs Teaming: error clearing injection manager: ${e}`);
     }
 
-    // cancel file monitor
     try {
       if (this._fileMonitor) {
         this._fileMonitor.cancel();
         this._fileMonitor = null;
       }
-    } catch (e) {}
+    } catch (e) {
+      log(`RGB GPUs Teaming: error cancelling file monitor: ${e}`);
+    }
 
-    this._injectedByDesktopId = new Map();
     this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED);
+    this._injectedByDesktopId = new Map();
 
-    logDebug('disabled');
-  },
+    log('RGB GPUs Teaming: extension disabled');
+  }
 
-  _isExcluded: function (desktopId) {
-    return this._excludedDesktopIds.has(desktopId);
-  },
-
-  _loadExcludedFromJson: function () {
+  _loadExcludedFromJson() {
     try {
-      let file = Gio.File.new_for_path(EXCLUDED_JSON_PATH);
+      const file = Gio.File.new_for_path(EXCLUDED_JSON_PATH);
       if (!file.query_exists(null)) {
-        logDebug('excluded JSON not found, using defaults');
+        log('RGB GPUs Teaming: excluded JSON not found, using defaults');
         this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED);
         return;
       }
-      let [, contents] = file.load_contents(null);
+
+      const [, contents] = file.load_contents(null);
       if (!contents) {
         this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED);
         return;
       }
-      let text = imports.byteArray.toString(contents);
+
+      const text = imports.byteArray.toString(contents);
       let parsed = null;
       try {
         parsed = JSON.parse(text);
       } catch (e) {
-        logDebug('invalid excluded JSON:', e);
+        log(`RGB GPUs Teaming: invalid JSON in ${EXCLUDED_JSON_PATH}: ${e}`);
         this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED);
         return;
       }
+
       if (parsed && Array.isArray(parsed.excluded)) {
         this._excludedDesktopIds = new Set(parsed.excluded);
-        logDebug('loaded excluded list length', parsed.excluded.length);
+        log(`RGB GPUs Teaming: loaded ${parsed.excluded.length} excluded desktopIds from JSON`);
       } else {
         this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED);
       }
     } catch (e) {
-      logDebug('error reading excluded JSON:', e);
+      log(`RGB GPUs Teaming: error reading excluded JSON: ${e}`);
       this._excludedDesktopIds = new Set(DEFAULT_EXCLUDED);
     }
-  },
+  }
 
-  _setupExcludedFileMonitor: function () {
+  _setupExcludedFileMonitor() {
     try {
-      let file = Gio.File.new_for_path(EXCLUDED_JSON_PATH);
+      const file = Gio.File.new_for_path(EXCLUDED_JSON_PATH);
       this._fileMonitor = file.monitor_file(Gio.FileMonitorFlags.NONE, null);
       this._fileMonitor.connect('changed', () => {
-        logDebug('excluded JSON changed, reloading');
+        log('RGB GPUs Teaming: excluded JSON changed, reloading');
         this._loadExcludedFromJson();
       });
     } catch (e) {
-      logDebug('could not setup file monitor:', e);
+      log(`RGB GPUs Teaming: could not setup file monitor for ${EXCLUDED_JSON_PATH}: ${e}`);
       this._fileMonitor = null;
     }
   }
-};
-
-function init() {
-  return new RgbGpusTeamingExtension();
 }
