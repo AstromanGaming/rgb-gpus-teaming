@@ -1,5 +1,7 @@
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
+import St from 'gi://St';
+import PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import { Extension, InjectionManager } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { AppMenu } from 'resource:///org/gnome/shell/ui/appMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -12,7 +14,7 @@ try {
 }
 
 const DBUS_NAME = 'ca.astromangaming.RGB-GPUs-Teaming';
-const DBUS_PATH = '/ca/astromangaming/RGB-GPUs-Teaming';
+const DBUS_PATH = '/ca/astromangaming/RGB_Gpus_Teaming';
 const DBUS_INTERFACE = 'ca.astromangaming.RGB-GPUs-Teaming';
 
 const FALLBACK_SCRIPT = '/opt/rgb-gpus-teaming/gnome-launcher.sh';
@@ -40,6 +42,7 @@ export default class RgbGpusTeamingExtension extends Extension {
     this._loadExcludedFromJson();
     this._setupExcludedFileMonitor();
 
+    // Async D-Bus call helper
     this._callDbus = async (method, desktopId) => {
       try {
         const proxy = await new Promise((resolve, reject) => {
@@ -71,6 +74,7 @@ export default class RgbGpusTeamingExtension extends Extension {
       }
     };
 
+    // Safe spawn fallback using argv array (no shell interpolation)
     this._runFallbackScript = (arg, asRoot = false) => {
       try {
         if (!GLib.file_test(FALLBACK_SCRIPT, GLib.FileTest.EXISTS | GLib.FileTest.IS_EXECUTABLE)) {
@@ -84,6 +88,7 @@ export default class RgbGpusTeamingExtension extends Extension {
       }
     };
 
+    // Central injection routine
     this._injectActionsIntoMenu = (menuOwner, desktopId) => {
       try {
         if (!desktopId) return;
@@ -115,6 +120,7 @@ export default class RgbGpusTeamingExtension extends Extension {
       }
     };
 
+    // Inject into AppMenu.open
     this._injectionManager.overrideMethod(AppMenu.prototype, 'open', original => {
       return function (...args) {
         try {
@@ -130,6 +136,7 @@ export default class RgbGpusTeamingExtension extends Extension {
       };
     });
 
+    // Inject into AppIcon interactions (overview grid)
     if (AppIcon && AppIcon.prototype) {
       if (AppIcon.prototype._onButtonPress) {
         this._injectionManager.overrideMethod(AppIcon.prototype, '_onButtonPress', original => {
@@ -164,6 +171,7 @@ export default class RgbGpusTeamingExtension extends Extension {
       }
     }
 
+    // Try AppDisplay injection if available
     try {
       const AppDisplay = imports.ui.appDisplay?.AppDisplay || null;
       if (AppDisplay && AppDisplay.prototype && AppDisplay.prototype._onButtonPress) {
@@ -183,6 +191,7 @@ export default class RgbGpusTeamingExtension extends Extension {
       }
     } catch (e) {}
 
+    // Try favorites injection if available
     try {
       const AppFavorites = imports.ui.appFavorites?.AppFavorites || null;
       if (AppFavorites && AppFavorites.prototype && AppFavorites.prototype._onButtonPress) {
@@ -201,6 +210,89 @@ export default class RgbGpusTeamingExtension extends Extension {
         });
       }
     } catch (e) {}
+
+    // --- Dash / DashItem injection for taskbar/favorites (right-click popup fallback) ---
+    try {
+      const DashItem = imports.ui.dash?.DashItem || imports.ui.dash?.DashItemView || null;
+      const Dash = imports.ui.dash?.Dash || imports.ui.dash?.DashView || null;
+
+      const createPopupFor = (actor, desktopId) => {
+        try {
+          if (!actor || actor._rgbGpuMenuCreated) return;
+          const menu = new PopupMenu.PopupMenu(actor, 0.0, St.Side.TOP);
+          const item1 = new PopupMenu.PopupMenuItem('Launch with RGB GPUs Teaming');
+          item1.connect('activate', () => {
+            extension._callDbus('LaunchDesktop', desktopId).then((called) => {
+              if (!called) extension._runFallbackScript(`${desktopId}.desktop`, false);
+            });
+          });
+          const item2 = new PopupMenu.PopupMenuItem('Launch as root (sudo/pkexec)');
+          item2.connect('activate', () => {
+            extension._callDbus('LaunchDesktopAsRoot', desktopId).then((called) => {
+              if (!called) extension._runFallbackScript(`${desktopId}.desktop`, true);
+            });
+          });
+          menu.addMenuItem(item1);
+          menu.addMenuItem(item2);
+          actor._rgbGpuMenu = menu;
+          actor._rgbGpuMenuCreated = true;
+          actor.connect('button-press-event', (actorObj, event) => {
+            if (event.get_button && event.get_button() === 3) {
+              menu.toggle();
+            }
+            return false;
+          });
+        } catch (e) {
+          log(`RGB GPUs Teaming: createPopupFor error: ${e}`);
+        }
+      };
+
+      if (DashItem && DashItem.prototype && DashItem.prototype._onButtonPress) {
+        this._injectionManager.overrideMethod(DashItem.prototype, '_onButtonPress', original => {
+          return function (actor, event) {
+            try {
+              const app = this._app || this.app || null;
+              const appInfo = app?.app_info || app?.get_app_info?.() || null;
+              const desktopId = appInfo?.get_id?.() || app?.get_id?.();
+              if (desktopId && !extension._isExcluded(desktopId)) {
+                if (typeof this.addAction === 'function') {
+                  extension._injectActionsIntoMenu(this, desktopId);
+                } else {
+                  createPopupFor(this.actor || this._delegate || actor, desktopId);
+                }
+              }
+            } catch (e) {
+              log(`RGB GPUs Teaming: DashItem._onButtonPress override error: ${e}`);
+            }
+            return original.call(this, actor, event);
+          };
+        });
+      }
+
+      if (Dash && Dash.prototype && Dash.prototype._onButtonPress) {
+        this._injectionManager.overrideMethod(Dash.prototype, '_onButtonPress', original => {
+          return function (actor, event) {
+            try {
+              const delegate = actor._delegate || actor._app || null;
+              const appInfo = delegate?.app_info || delegate?.get_app_info?.();
+              const desktopId = appInfo?.get_id?.() || delegate?.get_id?.();
+              if (desktopId && !extension._isExcluded(desktopId)) {
+                if (delegate && typeof delegate.addAction === 'function') {
+                  extension._injectActionsIntoMenu(delegate, desktopId);
+                } else {
+                  createPopupFor(actor, desktopId);
+                }
+              }
+            } catch (e) {
+              log(`RGB GPUs Teaming: Dash._onButtonPress override error: ${e}`);
+            }
+            return original.call(this, actor, event);
+          };
+        });
+      }
+    } catch (e) {
+      log(`RGB GPUs Teaming: dash injection setup failed: ${e}`);
+    }
 
     log('RGB GPUs Teaming: extension enabled');
   }

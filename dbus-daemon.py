@@ -10,7 +10,7 @@ import sys
 import signal
 
 BUS_NAME = "ca.astromangaming.RGB-GPUs-Teaming"
-OBJ_PATH = "/ca/astromangaming/RGB-GPUs-Teaming"
+OBJ_PATH = "/ca/astromangaming/RGB_Gpus_Teaming"
 LAUNCHER = "/opt/rgb-gpus-teaming/gnome-launcher.sh"
 
 IFACE = """
@@ -46,7 +46,6 @@ class Service:
             print(f"dbus-daemon: failed to spawn launcher as root: {e}", file=sys.stderr)
 
 def main():
-    # Ensure clean exit on SIGINT/SIGTERM
     loop = GLib.MainLoop()
     def _quit(*args):
         try:
