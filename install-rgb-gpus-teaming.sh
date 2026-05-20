@@ -1,15 +1,8 @@
 #!/usr/bin/env bash
-
 # install-rgb-gpus-teaming.sh
-#
-# Usage: sudo ./install-rgb-gpus-teaming.sh [options]
-#
-# Options:
-#   --all-ways-egpu            Install the "all-ways-egpu" launcher.
-#   -v, --vulkan               Install Vulkan experimental desktop files.
-#   -l, --lite                 Do NOT install .desktop files, DBUS services or GNOME extension (server mode).
-#   -h, --help                 Show this help and exit.
-# ------------------------------------------------------------
+# Installs project to /opt/rgb-gpus-teaming and removes the source directory
+# except when the source is located under /opt.
+# Run with sudo (script will re-exec with sudo if needed).
 
 set -euo pipefail
 
@@ -74,7 +67,7 @@ real_dest_parent="$(realpath -s "$(dirname "$DEST_BASE")")"
 log "Options : all-ways-egpu=$ALL_WAYS_EGPU, vulkan=$VULKAN_INSTALL, lite=$LITE_MODE"
 log "Source = $real_src  →  Destination = $DEST_BASE"
 
-# Helper to rewrite Exec= lines
+# Helper to rewrite Exec= lines in .desktop files
 rewrite_exec_cmd() {
   local src_exec="$1"
   local cmd="${src_exec#Exec=}"
@@ -205,29 +198,36 @@ install_dbus() {
 install_dbus
 
 # ---------------------------
-# Remove the source directory (user requested)
+# Remove the source directory except when under /opt
 # ---------------------------
-# Safety: ensure we are not about to delete root or other critical paths
 real_src="$(realpath -s "$SRC_DIR")"
-if [[ -z "$real_src" || "$real_src" == "/" || "$real_src" == "" ]]; then
+
+# Safety checks
+if [[ -z "$real_src" || "$real_src" == "/" ]]; then
   echo "Refusing to remove unsafe path: $real_src" >&2
   exit 1
 fi
 
-# Change working directory to avoid deleting current working dir
-log "Changing working directory to /tmp before removing source directory."
-cd /tmp || true
-
-log "Removing source directory: $real_src"
-rm -rf -- "$real_src"
-log "Source directory removed: $real_src"
+# If source is under /opt, skip deletion
+case "$real_src" in
+  /opt/*|/opt) 
+    log "Source directory is under /opt; skipping removal as requested: $real_src"
+    ;;
+  *)
+    # Change working directory to avoid deleting current working dir
+    log "Changing working directory to /tmp before removing source directory."
+    cd /tmp || true
+    log "Removing source directory: $real_src"
+    rm -rf -- "$real_src"
+    log "Source directory removed: $real_src"
+    ;;
+esac
 
 # Final messages
 log "System-wide installation complete."
 
-echo "Source directory removed: $real_src"
-echo "Desktop files installed to $DEST_DESKTOP_DIR"
 echo "Project files installed to $DEST_BASE"
+echo "Desktop files installed to $DEST_DESKTOP_DIR"
 
 if [[ -d "$SRC_DIR/dbus" ]]; then
   echo "DBUS services installed in /usr/share/dbus-1/services/"
