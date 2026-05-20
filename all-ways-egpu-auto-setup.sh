@@ -2,8 +2,7 @@
 set -euo pipefail
 
 # all-ways-egpu-auto-setup.sh
-# Interactive menu to build/apply final all-ways-egpu answers for a system install.
-# Expects system install at /opt/rgb-gpus-teaming
+# Interactive menu to build/apply final all-ways-egpu answers.
 
 INSTALL_BASE="/opt/rgb-gpus-teaming"
 CONF_DIR="/usr/share/all-ways-egpu"
