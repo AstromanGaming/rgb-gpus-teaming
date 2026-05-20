@@ -6,7 +6,7 @@
 # Options:
 #   --all-ways-egpu            Install the “all‑ways‑egpu” launcher.
 #   -v, --vulkan               Install all Vulkan experimental desktop files.
-#   --lite                     Do NOT install .desktop files, DBUS services or GNOME extension (Server mode).
+#   -l, --lite                 Do NOT install .desktop files, DBUS services or GNOME extension (Server mode).
 #   -h, --help                 Show this help and exit.
 # ------------------------------------------------------------
 
@@ -36,7 +36,7 @@ Usage: $SCRIPT_NAME [options]
 Options:
   --all-ways-egpu            Install the “all‑ways‑egpu” launcher.
   -v, --vulkan               Install all Vulkan experimental desktop files.
-  --lite                     Do NOT install .desktop files, DBUS services or GNOME extension (Server mode).
+  -l, --lite                 Do NOT install .desktop files, DBUS services or GNOME extension (Server mode).
   -h, --help                 Show this help and exit.
 EOF
 }
@@ -48,7 +48,7 @@ for arg in "$@"; do
 case "$arg" in
     --all-ways-egpu) ALL_WAYS_EGPU=true ;;
     -v|--vulkan)     VULKAN_INSTALL=true ;;
-    --lite)          LITE_MODE=true ;;
+    -l|--lite)       LITE_MODE=true ;;
     -h|--help)       usage; exit 0 ;;
     *)               echo "Warning: unknown argument '$arg' (ignored)" ;;
 esac
@@ -59,7 +59,7 @@ done
 # ---------------------------------------------------------------------------
 if [[ "$(id -u)" -ne 0 ]]; then
     echo "This installer requires root. Re‑running with sudo..."
-    exec sudo "$0" "$@"
+    exec /usr/bin/sudo "$0" "$@"
 fi
 
 if [[ ! -d "$SRC_DIR" ]]; then
@@ -247,13 +247,13 @@ install_dbus
 # ---------------------------------------------------------------------------
 remove_user_src_dir() {
     local project_basename="$(basename "$SRC_DIR")"
+    local user_to_clean="${SUDO_USER:-$USER}"
+    local target_dir="${HOME}/${project_basename}"
 
-    # Determine which user(s) should have their copies removed.
-    # We look for a directory <home>/<project‑name> that actually exists.
-    while IFS=: read -r _ _ _ _ _ homedir; do
-        [[ "$homedir" == */"$project_basename"* ]] && \
-            rm -rf -- "$homedir/$project_basename"
-    done < <(getent passwd)
+    if [[ -d "$target_dir" ]]; then
+        rm -rf -- "$target_dir"
+        log "Removed local copy ${target_dir}"
+    fi
 }
 remove_user_src_dir
 

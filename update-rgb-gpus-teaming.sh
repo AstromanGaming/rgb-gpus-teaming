@@ -4,7 +4,7 @@ set -euo pipefail
 # update-rgb-gpus-teaming.sh
 #
 # Usage:
-#   sudo ./update-rgb-gpus-teaming.sh [--all-ways-egpu] [-v|--vulkan] [-h|--help]
+#   sudo ./update-rgb-gpus-teaming.sh [--all-ways-egpu] [-v|--vulkan] [-l|--lite] [-h|--help]
 
 INSTALL_BASE="/opt/rgb-gpus-teaming"
 INSTALL_SCRIPT="$INSTALL_BASE/install-rgb-gpus-teaming.sh"
@@ -13,6 +13,7 @@ GIT_DIR="$INSTALL_BASE/.git"
 
 ALL_WAYS_EGPU=false
 VULKAN_INSTALL=false
+LITE_MODE=false
 
 # verbose enabled by default
 VERBOSE=true
@@ -27,6 +28,7 @@ Usage: $(basename "$0") [options]
 Options:
   --all-ways-egpu    Pass this flag to the install script to include the all-ways-egpu addon.
   -v, --vulkan       Pass this flag to the install script to include the Vulkan experimental.
+  -l, --lite         Pass this flag to the install script to include only the headless mode.
   -h, --help         Show this help message and exit.
 EOF
 }
@@ -36,6 +38,7 @@ while (( "$#" )); do
   case "$1" in
     --all-ways-egpu) ALL_WAYS_EGPU=true; shift ;;
     -v|--vulkan) VULKAN_INSTALL=true; shift ;;
+    -l|--lite) LITE_MODE=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'Warning: unknown argument %q (ignored)\n' "$1" >&2; shift ;;
   esac
@@ -48,6 +51,7 @@ err() { printf '%s\n' "$*" >&2; }
 info "Update/remove for system install at $INSTALL_BASE"
 log "Options: all-ways-egpu=$ALL_WAYS_EGPU"
 log "Options: vulkan=$VULKAN_INSTALL"
+log "Options: lite=$LITE_MODE"
 
 if [[ ! -d "$INSTALL_BASE" ]]; then
   err "Error: system install directory not found: $INSTALL_BASE"
@@ -75,6 +79,7 @@ fi
 script_flags=()
 [[ "$ALL_WAYS_EGPU" == true ]] && script_flags+=(--all-ways-egpu)
 [[ "$VULKAN_INSTALL" == true ]] && script_flags+=(--vulkan)
+[[ "$LITE_MODE" == true ]] && script_flags+=(--lite)
 
 # Helper to run a script (already root) with logging and diagnostics
 # Runs the child script with INSTALL_BASE as the working directory to avoid
