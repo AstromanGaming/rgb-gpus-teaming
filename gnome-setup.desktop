@@ -8,7 +8,8 @@ Terminal=true
 Type=Application
 Categories=Utility;
 StartupNotify=true
+Actions=RunAsRoot;
 
-[Desktop Action sudo]
-Name=Run an root
-Exec=sudo /opt/rgb-gpus-teaming/gnome-setup.sh
+[Desktop Action RunAsRoot]
+Name=Run as root
+Exec=pkexec /opt/rgb-gpus-teaming/gnome-setup.sh
